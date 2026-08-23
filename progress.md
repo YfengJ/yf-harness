@@ -23,6 +23,7 @@
 - 已完成 0.2.0 统一适配契约、三套原生适配器、CLI/Doctor、独立/聚合 extras、真实兼容端点测试、文档与 CI。
 - 最终全量 101 项测试通过，覆盖率 82.08%；Ruff、格式、mypy、20/20 Eval、sdist/wheel 构建均通过。
 - 已验证隔离默认安装不含三套框架；另一个全新 wheel 环境安装 `[frameworks]` 后三套离线 Agent 全部实际运行成功。
+- 已推送私密 GitHub 仓库；CI run `32651042271` 的最小安装任务与 3 OS × 2 Python 六组质量任务全部通过。
 
 - 已搭建 `pyproject.toml`、`src/yfharness` 和 `tests`。
 - 已实现领域模型、统一事件、Provider 抽象/注册表、MockProvider 和最小 Typer CLI。
@@ -101,6 +102,7 @@
 | 2026-08-24 | 阶段 10 框架专项 | 12 passed；三套离线 Agent、三套真实兼容 HTTP 客户端、CLI 与缺包诊断通过 |
 | 2026-08-24 | 阶段 10 全量 | 101 passed；82.08% 覆盖率，Ruff/格式/mypy 通过 |
 | 2026-08-24 | 阶段 10 Change Radar | P1/64，无 blocking gaps；依赖、CI、公开 CLI 风险均有直接验证证据 |
+| 2026-08-24 | GitHub CI `32651042271` | minimal-install 与 Linux/macOS/Windows × Python 3.12/3.13 共七个 Job 全绿 |
 | 2026-08-24 | 阶段 10 Eval/构建 | 20/20 Eval；成功构建 0.2.0 sdist/wheel |
 | 2026-08-24 | 0.2.0 隔离安装 | 默认安装确认无框架 SDK；`[frameworks]` wheel 安装后 LangChain/LlamaIndex/AutoGen smoke 全通过 |
 

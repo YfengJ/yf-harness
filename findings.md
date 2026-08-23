@@ -49,3 +49,4 @@
 - `respx` 端到端测试确认三套官方客户端都真实请求 `/v1/chat/completions`，携带配置模型名与环境变量读取的 Bearer Key，并正确回收客户端。
 - 0.2.0 wheel 的默认 `Requires-Dist` 仍只有原有 8 个轻量运行依赖；三套 SDK 仅出现在各自 extra 与聚合 `frameworks` extra。隔离默认环境确认三个 import spec 均不存在。
 - 最终 Change Radar 为 P1/64 且无 blocking gaps；主要风险来自预期的 lockfile、CI 和公共 CLI 变更，已分别用锁定同步、两类全新安装、真实 CLI/HTTP 测试和全量矩阵配置覆盖。
+- GitHub Actions run `32651042271` 验证：不安装框架的默认环境可运行并通过非框架回归；安装聚合 extra 后，Ubuntu、macOS、Windows 的 Python 3.12/3.13 均通过 lint、format、mypy、101 项测试/覆盖率门、20 类 Eval、构建和产物上传。

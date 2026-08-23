@@ -80,8 +80,8 @@
 - [x] 实现 LangChain、LlamaIndex、AutoGen 真实运行入口与缺失依赖诊断
 - [x] 提供无 API Key 的框架级离线 smoke 和兼容 Provider 集成测试
 - [x] 接入 CLI、Doctor、可选依赖、文档、CI 与发布包
-- [ ] 全量验证、全新安装、私密 GitHub 推送和六组远端 CI
-- **状态：** in_progress
+- [x] 全量验证、全新安装、私密 GitHub 推送和六组远端 CI
+- **状态：** complete
 
 ## 变更简报
 - **用户可见目标：** `yfh` 在无 API Key 时以 MockProvider 完整运行，有配置时连接 OpenAI 兼容服务，并通过 TUI/CLI 安全执行 Agent 工作流。
