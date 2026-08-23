@@ -20,8 +20,8 @@ jobs:
         python-version: ["3.12", "3.13"]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@v7.0.1
+      - uses: astral-sh/setup-uv@v10.0.1
         with:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
@@ -32,7 +32,7 @@ jobs:
       - run: uv run pytest --cov=yfharness --cov-report=term-missing --cov-report=xml
       - run: uv run yfh eval --output eval-report.json
       - run: uv build
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7.0.1
         if: always()
         with:
           name: artifacts-${{ matrix.os }}-py${{ matrix.python-version }}

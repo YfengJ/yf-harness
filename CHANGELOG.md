@@ -24,3 +24,4 @@
 - 发布元数据关联源码仓库，sdist 排除内部规划记录。
 - 修正 Windows mypy 平台裁剪，并以 `taskkill /T` 终止超时命令的子进程树。
 - 统一 Patch 预览/执行的换行语义，并在应用 LF 补丁后保留目标文件的 CRLF。
+- 升级 CI Actions 到官方当前稳定的 Node 24 版本，消除 Node 20 弃用告警。
