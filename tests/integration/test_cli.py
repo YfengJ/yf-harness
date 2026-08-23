@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -84,3 +87,31 @@ def test_discovery_config_and_doctor_commands(tmp_path: Path) -> None:
     assert config_path.exit_code == 0 and str(tmp_path / "config") in config_path.output
     assert config_show.exit_code == 0 and '"default_provider": "mock"' in config_show.output
     assert doctor.exit_code == 0 and "[OK] database" in doctor.output
+
+
+def test_module_entrypoint_overrides_legacy_stdio_encoding(tmp_path: Path) -> None:
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "PYTHONIOENCODING": "cp1252",
+            "YFH_CONFIG_DIR": str(tmp_path / "config"),
+            "YFH_DATA_DIR": str(tmp_path / "data"),
+        }
+    )
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "yfharness",
+            "eval",
+            "--output",
+            str(tmp_path / "report"),
+        ],
+        env=environment,
+        capture_output=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr.decode("utf-8", errors="replace")
+    assert "通过率: 100.0%" in completed.stdout.decode("utf-8")

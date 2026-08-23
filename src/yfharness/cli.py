@@ -665,7 +665,22 @@ def doctor(
         raise typer.Exit(code=1)
 
 
+def _configure_utf8_stdio() -> None:
+    """Keep redirected Windows CLI input and output Unicode-safe."""
+
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if not callable(reconfigure):
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except (OSError, ValueError):
+            # Embedded hosts may expose immutable or already-closed streams.
+            continue
+
+
 def main() -> None:
+    _configure_utf8_stdio()
     app()
 
 

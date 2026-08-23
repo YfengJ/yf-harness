@@ -90,6 +90,7 @@
 | 2026-08-23 | Windows 跨平台修复 | 改用可静态裁剪的平台分支和 `taskkill /T /F` 子进程树终止 |
 | 2026-08-23 | Windows 换行修复 | Patch 匹配归一化 LF/CRLF 并保留原格式；新增 CRLF 回归测试 |
 | 2026-08-23 | CI Action 维护 | 按官方最新 release 升级 checkout/upload-artifact 7.0.1、setup-uv 10.0.1 |
+| 2026-08-23 | Windows CLI 编码修复 | 标准流入口强制 UTF-8；新增 cp1252 子进程端到端回归测试 |
 
 ## 错误与修复
 
