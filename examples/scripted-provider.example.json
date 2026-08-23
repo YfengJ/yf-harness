@@ -1,0 +1,11 @@
+[
+  {"chunks": ["这是一段", "脚本化流式", "回答。"]},
+  {
+    "tool_call": {
+      "id": "example-call-1",
+      "name": "read_file",
+      "arguments": {"path": "README.md"}
+    }
+  },
+  {"failure": "rate_limit"}
+]

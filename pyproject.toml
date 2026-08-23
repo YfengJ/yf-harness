@@ -1,0 +1,86 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "yf-harness"
+version = "0.1.0"
+description = "Local-first, terminal-first, provider-neutral LLM agent harness"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { file = "LICENSE" }
+authors = [{ name = "YF-Harness contributors" }]
+keywords = ["agent", "llm", "terminal", "tui", "tool-calling"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Typing :: Typed",
+]
+dependencies = [
+  "aiosqlite>=0.20,<1",
+  "httpx>=0.27,<1",
+  "platformdirs>=4.3,<5",
+  "pydantic>=2.10,<3",
+  "rich>=13.9,<15",
+  "textual>=1.0,<2",
+  "typer>=0.15,<1",
+]
+
+[project.urls]
+Homepage = "https://github.com/YfengJ/yf-harness"
+Repository = "https://github.com/YfengJ/yf-harness.git"
+Issues = "https://github.com/YfengJ/yf-harness/issues"
+
+[project.optional-dependencies]
+dev = [
+  "build>=1.2,<2",
+  "mypy>=1.14,<2",
+  "pytest>=8.3,<9",
+  "pytest-asyncio>=0.25,<1",
+  "pytest-cov>=6,<7",
+  "respx>=0.22,<1",
+  "ruff>=0.9,<1",
+]
+
+[project.scripts]
+yfh = "yfharness.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/yfharness"]
+
+[tool.hatch.build.targets.sdist]
+exclude = ["/PLAN.md", "/findings.md", "/progress.md", "/task_plan.md"]
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-config --strict-markers"
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["yfharness"]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC", "SIM", "RUF"]
+allowed-confusables = ["：", "；", "！", "，", "？"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+packages = ["yfharness"]
+mypy_path = "src"
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["textual.*"]
+ignore_missing_imports = true

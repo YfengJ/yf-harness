@@ -1,0 +1,130 @@
+Screen {
+    background: $surface;
+}
+
+#size-warning {
+    display: none;
+    dock: top;
+    height: 1;
+    background: $warning;
+    color: $text;
+    text-align: center;
+}
+
+#main-grid {
+    height: 1fr;
+}
+
+#sidebar {
+    width: 28;
+    min-width: 20;
+    border-right: solid $primary-background;
+    padding: 0 1;
+}
+
+#session-search {
+    margin-bottom: 1;
+}
+
+#sessions {
+    height: 1fr;
+    border: round $primary-background;
+}
+
+#center {
+    width: 1fr;
+    padding: 0 1;
+}
+
+#conversation {
+    height: 1fr;
+    border: round $primary-background;
+    padding: 1 2;
+}
+
+.message-user {
+    background: $primary-background;
+    margin: 1 0;
+    padding: 1 2;
+}
+
+.message-assistant {
+    margin: 1 0;
+    padding: 1 2;
+}
+
+.message-error {
+    color: $error;
+    border: round $error;
+    padding: 1;
+}
+
+#prompt {
+    height: 7;
+    border: round $accent;
+    margin-top: 1;
+}
+
+#suggestions {
+    height: auto;
+    max-height: 6;
+    color: $text-muted;
+}
+
+#right-panel {
+    width: 30;
+    min-width: 22;
+    border-left: solid $primary-background;
+    padding: 0 1;
+}
+
+.panel-title {
+    text-style: bold;
+    color: $accent;
+    margin-top: 1;
+}
+
+#timeline {
+    height: 1fr;
+    border: round $primary-background;
+    padding: 1;
+}
+
+#bottom-actions {
+    height: auto;
+    align-horizontal: right;
+}
+
+#bottom-actions Button {
+    margin-left: 1;
+}
+
+#modal-card {
+    width: 78%;
+    max-width: 100;
+    height: auto;
+    max-height: 90%;
+    border: thick $accent;
+    background: $panel;
+    padding: 1 2;
+    align: center middle;
+}
+
+ModalScreen {
+    align: center middle;
+    background: $background 70%;
+}
+
+.modal-actions {
+    height: auto;
+    align-horizontal: right;
+    margin-top: 1;
+}
+
+.modal-actions Button {
+    margin-left: 1;
+}
+
+.warning {
+    color: $warning;
+}

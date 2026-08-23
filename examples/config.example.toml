@@ -1,0 +1,27 @@
+default_provider = "deepseek"
+default_model = "deepseek_chat"
+
+[providers.deepseek]
+type = "openai_compatible"
+base_url = "${DEEPSEEK_BASE_URL}"
+api_key_env = "DEEPSEEK_API_KEY"
+timeout_seconds = 120
+max_retries = 2
+
+[models.deepseek_chat]
+id = "deepseek_chat"
+provider = "deepseek"
+model = "请填写当前服务实际支持的模型名称"
+supports_streaming = true
+supports_native_tools = true
+supports_reasoning = false
+supports_system_message = true
+context_window = 64000
+max_output_tokens = 4096
+
+[providers.local]
+type = "openai_compatible"
+base_url = "http://127.0.0.1:11434/v1"
+api_key_env = ""
+
+# Pricing and context limits are user configuration, never permanent program facts.
