@@ -32,7 +32,7 @@ async def allow(_: ApprovalRequest) -> ApprovalDecision:
 @pytest.mark.asyncio
 async def test_read_search_find_and_file_info(tmp_path: Path) -> None:
     (tmp_path / "src").mkdir()
-    (tmp_path / "src" / "a.py").write_text("alpha\nbeta\n", encoding="utf-8")
+    (tmp_path / "src" / "a.py").write_bytes(b"alpha\nbeta\n")
     executor = ToolExecutor(builtin_tools(), make_context(tmp_path))
 
     read = await executor.execute(
@@ -133,6 +133,26 @@ async def test_apply_patch_is_real_and_rejects_stale_context(tmp_path: Path) -> 
                 arguments={"path": "file.txt", "patch": create_patch("file.txt", old, "changed\n")},
             )
         )
+
+
+@pytest.mark.asyncio
+async def test_apply_patch_preserves_crlf_line_endings(tmp_path: Path) -> None:
+    target = tmp_path / "windows.txt"
+    old = "one\ntwo\nthree\n"
+    new = "one\nTWO\nthree\n"
+    target.write_bytes(old.replace("\n", "\r\n").encode())
+    executor = ToolExecutor(builtin_tools(), make_context(tmp_path), approval_handler=allow)
+
+    result = await executor.execute(
+        ToolCall(
+            id="patch-crlf",
+            name="apply_patch",
+            arguments={"path": "windows.txt", "patch": create_patch("windows.txt", old, new)},
+        )
+    )
+
+    assert result.success
+    assert target.read_bytes() == new.replace("\n", "\r\n").encode()
 
 
 @pytest.mark.asyncio

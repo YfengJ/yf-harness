@@ -88,6 +88,7 @@
 | 2026-08-23 | 发布元数据优化 | 增加 GitHub URLs/Python 3.13 classifier；sdist 排除内部规划记录 |
 | 2026-08-23 | 首次远端 CI | Linux/macOS 四组通过；Windows 3.12/3.13 暴露 killpg 平台类型错误 |
 | 2026-08-23 | Windows 跨平台修复 | 改用可静态裁剪的平台分支和 `taskkill /T /F` 子进程树终止 |
+| 2026-08-23 | Windows 换行修复 | Patch 匹配归一化 LF/CRLF 并保留原格式；新增 CRLF 回归测试 |
 
 ## 错误与修复
 

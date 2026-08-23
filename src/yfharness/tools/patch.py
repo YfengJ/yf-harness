@@ -41,7 +41,8 @@ class ApplyPatchTool(Tool):
         assert isinstance(arguments, ApplyPatchInput)
         path = context.guard.resolve(arguments.path, must_exist=True)
         # Parse and dry-run before asking, so approval never presents an invalid patch.
-        _apply(path.read_text(encoding="utf-8"), arguments.patch)
+        original = _decode_utf8(path.read_bytes())
+        _apply(_normalize_newlines(original), _normalize_newlines(arguments.patch))
         return ToolPreview(paths=[context.guard.relative(path)], diff=arguments.patch)
 
     async def execute(self, arguments: ToolInput, context: ToolContext) -> ToolResult:
@@ -49,12 +50,13 @@ class ApplyPatchTool(Tool):
         started = time.monotonic()
         path = context.guard.resolve(arguments.path, must_exist=True)
         before = path.read_bytes()
-        try:
-            old_text = before.decode("utf-8")
-        except UnicodeDecodeError as exc:
-            raise ToolExecutionError("补丁目标必须是 UTF-8 文本") from exc
-        new_text = _apply(old_text, arguments.patch)
-        _atomic_write(path, new_text)
+        old_text = _decode_utf8(before)
+        newline = _preferred_newline(old_text)
+        new_text = _apply(
+            _normalize_newlines(old_text),
+            _normalize_newlines(arguments.patch),
+        )
+        _atomic_write(path, _restore_newlines(new_text, newline))
         after = path.read_bytes()
         _journal(context).record(ChangeEntry(kind="write", path=path, before=before, after=after))
         relative = context.guard.relative(path)
@@ -147,3 +149,26 @@ def create_patch(path: str, old: str, new: str) -> str:
             tofile=f"b/{path}",
         )
     )
+
+
+def _decode_utf8(content: bytes) -> str:
+    try:
+        return content.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ToolExecutionError("补丁目标必须是 UTF-8 文本") from exc
+
+
+def _preferred_newline(content: str) -> str:
+    if "\r\n" in content:
+        return "\r\n"
+    if "\r" in content:
+        return "\r"
+    return "\n"
+
+
+def _normalize_newlines(content: str) -> str:
+    return content.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _restore_newlines(content: str, newline: str) -> str:
+    return content if newline == "\n" else content.replace("\n", newline)
