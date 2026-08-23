@@ -6,6 +6,7 @@ import asyncio
 import os
 import shlex
 import signal
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -125,7 +126,9 @@ async def execute_command(
         "stdout": asyncio.subprocess.PIPE,
         "stderr": asyncio.subprocess.PIPE,
     }
-    if os.name != "nt":
+    if sys.platform == "win32":
+        kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    else:
         kwargs["start_new_session"] = True
     if shell:
         assert isinstance(command, str)
@@ -180,17 +183,17 @@ async def execute_command(
 async def _terminate(process: asyncio.subprocess.Process) -> None:
     if process.returncode is not None:
         return
-    if os.name != "nt":
+    if sys.platform != "win32":
         try:
             os.killpg(process.pid, signal.SIGTERM)
         except ProcessLookupError:
             return
     else:
-        process.terminate()
+        await _kill_windows_process_tree(process)
     try:
         await asyncio.wait_for(process.wait(), timeout=2)
     except TimeoutError:
-        if os.name != "nt":
+        if sys.platform != "win32":
             try:
                 os.killpg(process.pid, signal.SIGKILL)
             except ProcessLookupError:
@@ -198,6 +201,24 @@ async def _terminate(process: asyncio.subprocess.Process) -> None:
         else:
             process.kill()
         await process.wait()
+
+
+async def _kill_windows_process_tree(process: asyncio.subprocess.Process) -> None:
+    """Terminate a Windows process and all descendants, with a direct fallback."""
+
+    try:
+        killer = await asyncio.create_subprocess_exec(
+            "taskkill",
+            "/PID",
+            str(process.pid),
+            "/T",
+            "/F",
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        await killer.wait()
+    except OSError:
+        process.kill()
 
 
 def _tokens(command: list[str] | str) -> list[str]:

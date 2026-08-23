@@ -86,6 +86,8 @@
 | 2026-08-23 | 最终发布包内容 | 重建 sdist/wheel；确认 README、License、Changelog、docs、CLI、typed marker、入口点 |
 | 2026-08-23 | 发布前优化测试 | 85 passed；精确覆盖率由 79.56% 提升至 81.19%，CI 固定 80% 门槛 |
 | 2026-08-23 | 发布元数据优化 | 增加 GitHub URLs/Python 3.13 classifier；sdist 排除内部规划记录 |
+| 2026-08-23 | 首次远端 CI | Linux/macOS 四组通过；Windows 3.12/3.13 暴露 killpg 平台类型错误 |
+| 2026-08-23 | Windows 跨平台修复 | 改用可静态裁剪的平台分支和 `taskkill /T /F` 子进程树终止 |
 
 ## 错误与修复
 
