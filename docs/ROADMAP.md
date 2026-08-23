@@ -6,6 +6,7 @@ Provider/事件、Agent Loop、安全工具、SQLite、TUI/CLI、上下文、观
 
 ## 0.2：兼容性与可靠性
 
+- LangChain、LlamaIndex、AutoGen 可选原生 Agent 适配层，含离线与 OpenAI-compatible 契约测试。（已完成）
 - 更多经过契约测试的 OpenAI 兼容 SSE 变体。
 - Windows 子进程树和文件替换专项加固。
 - 可插拔 tokenizer 与更细粒度成本预算。
@@ -17,6 +18,7 @@ Provider/事件、Agent Loop、安全工具、SQLite、TUI/CLI、上下文、观
 - 可选 OS 沙箱后端和网络 allowlist。
 - 会话分支、可移植加密导出与恢复工具。
 - TUI 可访问性、主题和大型历史性能优化。
+- 经过安全设计评审后，探索把只读工具以受控代理方式暴露给框架，而非直接授予执行权。
 
 ## 非目标
 

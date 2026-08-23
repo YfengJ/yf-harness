@@ -6,6 +6,21 @@
 
 - 等待社区反馈与首个补丁版本。
 
+## [0.2.0] - 2026-08-24
+
+### Added
+
+- LangChain 1.x、LlamaIndex Workflow 和 AutoGen AgentChat 的可选原生 Agent 适配器。
+- `langchain`、`llamaindex`、`autogen` 与聚合 `frameworks` 安装 extra。
+- `yfh frameworks list/doctor/run`，支持 MockProvider 离线运行和已有 OpenAI-compatible 配置。
+- 统一 `FrameworkRequest` / `FrameworkResult`、版本发现、缺失依赖诊断和用量归一化。
+- 三套框架的真实离线对象与伪 OpenAI-compatible HTTP 端到端契约测试。
+
+### Security
+
+- 框架适配器不注入本地工具，不能绕过现有 Policy、Approval 和 WorkspaceGuard。
+- API Key 仍只从配置指定的环境变量读取，不新增配置或持久化密钥字段。
+
 ## [0.1.0] - 2026-08-23
 
 ### Added

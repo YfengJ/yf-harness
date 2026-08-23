@@ -2,8 +2,8 @@
 
 ## 当前状态
 
-- 当前阶段：第一版完成
-- 整体状态：可安装、可运行、可测试、可发布
+- 当前阶段：阶段 10（高级 Agent 框架集成）
+- 整体状态：0.1.0 稳定基线之上继续开发
 - 初始仓库：空目录、非 Git 仓库
 - 当前风险：P1（安全边界、子进程、持久化、CLI/TUI 公共契约）
 
@@ -16,6 +16,13 @@
 - 完成阶段 0 的规划、风险、契约和验收基线。
 
 ## 当前进行
+
+- 正在将 LangChain、LlamaIndex、AutoGen 作为可选真实集成层加入项目；先依据官方 API 锁定适配契约。
+- 约束：默认安装继续轻量；第三方框架不能绕过 YF-Harness 的 Provider 密钥规则和工具安全边界。
+- 已锁定并本地安装 `frameworks` extra，三套框架的当前真实 API 和离线可运行路径均已通过最小脚本验证；下一步进入统一契约与适配器实现。
+- 已完成 0.2.0 统一适配契约、三套原生适配器、CLI/Doctor、独立/聚合 extras、真实兼容端点测试、文档与 CI。
+- 最终全量 101 项测试通过，覆盖率 82.08%；Ruff、格式、mypy、20/20 Eval、sdist/wheel 构建均通过。
+- 已验证隔离默认安装不含三套框架；另一个全新 wheel 环境安装 `[frameworks]` 后三套离线 Agent 全部实际运行成功。
 
 - 已搭建 `pyproject.toml`、`src/yfharness` 和 `tests`。
 - 已实现领域模型、统一事件、Provider 抽象/注册表、MockProvider 和最小 Typer CLI。
@@ -91,6 +98,11 @@
 | 2026-08-23 | Windows 换行修复 | Patch 匹配归一化 LF/CRLF 并保留原格式；新增 CRLF 回归测试 |
 | 2026-08-23 | CI Action 维护 | 按官方最新 release 升级 checkout/upload-artifact 7.0.1、setup-uv 10.0.1 |
 | 2026-08-23 | Windows CLI 编码修复 | 标准流入口强制 UTF-8；新增 cp1252 子进程端到端回归测试 |
+| 2026-08-24 | 阶段 10 框架专项 | 12 passed；三套离线 Agent、三套真实兼容 HTTP 客户端、CLI 与缺包诊断通过 |
+| 2026-08-24 | 阶段 10 全量 | 101 passed；82.08% 覆盖率，Ruff/格式/mypy 通过 |
+| 2026-08-24 | 阶段 10 Change Radar | P1/64，无 blocking gaps；依赖、CI、公开 CLI 风险均有直接验证证据 |
+| 2026-08-24 | 阶段 10 Eval/构建 | 20/20 Eval；成功构建 0.2.0 sdist/wheel |
+| 2026-08-24 | 0.2.0 隔离安装 | 默认安装确认无框架 SDK；`[frameworks]` wheel 安装后 LangChain/LlamaIndex/AutoGen smoke 全通过 |
 
 ## 错误与修复
 

@@ -59,11 +59,13 @@ config_app = typer.Typer(help="查看配置。")
 sessions_app = typer.Typer(help="管理已保存会话。")
 models_app = typer.Typer(help="查看模型配置。")
 tools_app = typer.Typer(help="查看可用工具。")
+frameworks_app = typer.Typer(help="发现、诊断和运行可选 Agent 框架。")
 app.add_typer(providers_app, name="providers")
 app.add_typer(config_app, name="config")
 app.add_typer(sessions_app, name="sessions")
 app.add_typer(models_app, name="models")
 app.add_typer(tools_app, name="tools")
+app.add_typer(frameworks_app, name="frameworks")
 
 
 def _version_callback(value: bool) -> None:
@@ -534,6 +536,84 @@ def tools_list() -> None:
             f"{definition.name}\t{definition.risk_level.value}\t"
             f"{'read-only' if definition.read_only else 'write/execute'}"
         )
+
+
+@frameworks_app.command("list")
+def frameworks_list() -> None:
+    """列出框架、安装状态和已发现版本。"""
+
+    from yfharness.integrations.frameworks import framework_infos
+
+    for info in framework_infos():
+        versions = ", ".join(f"{name}={value}" for name, value in info.versions.items())
+        typer.echo(
+            f"{info.name.value}\t{'installed' if info.installed else 'missing'}\t"
+            f"{versions or f'pip install yf-harness[{info.install_extra}]'}"
+        )
+
+
+@frameworks_app.command("doctor")
+def frameworks_doctor() -> None:
+    """诊断全部可选框架，不把未安装的可选项视为全局错误。"""
+
+    from yfharness.integrations.frameworks import framework_infos
+
+    for info in framework_infos():
+        if info.installed:
+            versions = ", ".join(f"{name} {value}" for name, value in info.versions.items())
+            typer.echo(f"[OK] framework:{info.name.value}: {versions}")
+        else:
+            typer.echo(
+                f"[Skipped] framework:{info.name.value}: 可选依赖未完整安装；"
+                f"pip install 'yf-harness[{info.install_extra}]'"
+            )
+
+
+@frameworks_app.command("run")
+def frameworks_run(
+    framework: Annotated[str, typer.Argument(help="框架：langchain、llamaindex 或 autogen。")],
+    task: Annotated[str, typer.Argument(help="任务内容。")],
+    provider: Annotated[str | None, typer.Option("--provider", help="Provider 名称。")] = None,
+    model: Annotated[str | None, typer.Option("--model", help="模型配置名称。")] = None,
+    system_prompt: Annotated[
+        str, typer.Option("--system", help="传给框架 Agent 的系统提示词。")
+    ] = "You are a helpful assistant.",
+    output: Annotated[str, typer.Option("--output", help="输出格式：text 或 json。")] = "text",
+    timeout: Annotated[float, typer.Option("--timeout", min=0.1, help="运行超时秒数。")] = 120,
+) -> None:
+    """通过框架原生 Agent API 运行一个无工具任务。"""
+
+    from yfharness.integrations.frameworks import (
+        FrameworkName,
+        FrameworkRequest,
+        get_adapter,
+    )
+
+    if output not in {"text", "json"}:
+        typer.echo("错误：--output 只能是 text 或 json。", err=True)
+        raise typer.Exit(code=2)
+    try:
+        framework_name = FrameworkName(framework.lower())
+    except ValueError as exc:
+        typer.echo(f"错误：未知框架 {framework!r}。", err=True)
+        raise typer.Exit(code=2) from exc
+    try:
+        config = load_config()
+        request = FrameworkRequest(
+            task=task,
+            provider=provider or config.default_provider,
+            model=model or config.default_model,
+            system_prompt=system_prompt,
+            timeout_seconds=timeout,
+        )
+        result = asyncio.run(get_adapter(framework_name).run(request, config))
+    except (HarnessError, TimeoutError, ValueError, KeyError, OSError) as exc:
+        typer.echo(f"错误：{exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    if output == "json":
+        typer.echo(json.dumps(result.model_dump(mode="json"), ensure_ascii=False))
+    else:
+        typer.echo(result.text)
 
 
 @sessions_app.command("list")

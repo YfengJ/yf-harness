@@ -112,6 +112,20 @@ async def run_doctor(config: AppConfig, *, check_network: bool = True) -> list[D
                     + ("已设置" if key_present else "未设置"),
                 )
             )
+    from yfharness.integrations.frameworks import framework_infos
+
+    for info in framework_infos():
+        checks.append(
+            DoctorCheck(
+                name=f"framework:{info.name.value}",
+                status=HealthStatus.OK if info.installed else HealthStatus.SKIPPED,
+                message=(
+                    ", ".join(f"{name} {value}" for name, value in info.versions.items())
+                    if info.installed
+                    else f"可选依赖未安装；pip install 'yf-harness[{info.install_extra}]'"
+                ),
+            )
+        )
     return checks
 
 

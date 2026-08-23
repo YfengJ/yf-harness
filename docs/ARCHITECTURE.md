@@ -5,6 +5,9 @@ YF-Harness 采用端口与适配器式分层：核心只认识领域对象和抽
 ```mermaid
 flowchart TB
   U[用户] --> UI[Typer CLI / Textual TUI]
+  UI --> FI[Optional Framework Adapters]
+  FI --> LC[LangChain / LlamaIndex / AutoGen]
+  LC --> FC[Framework-native OpenAI-compatible Clients]
   UI --> AR[AgentRunner 显式状态机]
   AR --> CE[ContextBuilder / Compactor]
   AR --> PP[Provider Protocol]
@@ -25,6 +28,10 @@ flowchart TB
 一次请求由界面创建领域消息，经上下文预算后交给 Provider。统一事件驱动输出或工具调用；工具结果作为新消息回到同一循环，直到完成、取消或触发预算。Repository 记录可恢复事实，日志记录运行诊断，两者都在写入前脱敏。
 
 关键扩展点是 `Provider`、`Tool`、策略与 Repository，而不是复制 AgentRunner。新增实现应保持事件、Schema、错误和取消语义稳定。
+
+可选框架适配层是并列入口，不是核心依赖：它把统一的 `FrameworkRequest` 映射到框架原生 Agent，
+再把文本、用量、耗时和元数据归一化为 `FrameworkResult`。适配器复用 `AppConfig` 的 Provider/Model
+选择和环境变量密钥规则，但不取得 YF-Harness 工具执行权。默认安装只加载发现注册表，不导入任何框架 SDK。
 
 ## 我应该理解什么
 

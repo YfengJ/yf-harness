@@ -9,8 +9,8 @@ YF-Harness 是一个本地优先、终端优先、模型无关的个人 LLM Agen
 ## Harness 是什么
 
 模型只生成不可信建议；Harness 负责组装上下文、请求模型、解析事件、验证工具 Schema、执行策略、
-请求审批、限制 workspace、持久化运行和恢复异常。核心实现不依赖 LangChain、LlamaIndex、AutoGen
-或供应商 SDK，适合学习真实的 HTTP/SSE、Agent Loop 和 Context Engineering。
+请求审批、限制 workspace、持久化运行和恢复异常。核心实现不依赖高级框架或供应商 SDK；LangChain、
+LlamaIndex 和 AutoGen 通过可选、惰性加载的适配层接入，既保留可学习的核心，也能直接运行生态框架。
 
 ## 功能
 
@@ -23,6 +23,7 @@ YF-Harness 是一个本地优先、终端优先、模型无关的个人 LLM Agen
 - Textual 三栏 TUI：流式 Markdown、会话、工具折叠、审批、设置、诊断和响应式布局。
 - 项目指令、手动/自动文件上下文、Token 预算与八字段结构化压缩。
 - 轮转文本/JSONL 日志、Trace、只读 Replay 和 20 类离线 Eval。
+- LangChain、LlamaIndex、AutoGen 真实 Agent API 集成；支持离线 Mock 和现有 OpenAI-compatible 配置。
 
 ## 截图
 
@@ -54,6 +55,13 @@ git clone https://github.com/YfengJ/yf-harness.git YF-Harness
 cd YF-Harness
 uv sync --extra dev
 uv run yfh --help
+```
+
+需要全部高级框架时：
+
+```bash
+uv sync --extra dev --extra frameworks
+# 或 pip install -e '.[dev,frameworks]'
 ```
 
 ### 普通 pip 与 venv
@@ -145,6 +153,24 @@ yfh config show
 yfh config path
 ```
 
+## 高级 Agent 框架
+
+框架是可选边界，不会替换 `AgentRunner`。安装后可发现、诊断并用相同 Provider/Model 配置运行：
+
+```bash
+yfh frameworks list
+yfh frameworks doctor
+yfh frameworks run langchain "总结这段需求"
+yfh frameworks run llamaindex "分析这个问题" --output json
+yfh frameworks run autogen "给出实施方案" --provider deepseek --model deepseek_chat
+```
+
+也可只安装一个：`pip install 'yf-harness[langchain]'`、`[llamaindex]` 或 `[autogen]`。
+MockProvider 会实例化每个框架自己的 Agent/模型接口，完全离线运行；远程 Provider 会实例化该框架的
+官方 OpenAI-compatible 客户端。当前适配层故意传入空工具集，避免第三方执行循环绕过 YF-Harness 的
+审批和 workspace 防线；需要文件、Shell、Git 等能力时继续使用 `yfh run`。完整契约与 Python API
+示例见 [`docs/FRAMEWORK_INTEGRATIONS.md`](docs/FRAMEWORK_INTEGRATIONS.md)。
+
 `yfh run` 支持 stdin、文本/JSON 输出、超时和非零错误码，适合 CI。Replay 只有在显式
 `--execute` 并确认后才重新执行。
 
@@ -177,6 +203,7 @@ uv run ruff check .
 uv run ruff format --check .
 uv run mypy src
 uv run pytest
+uv run pytest -m frameworks
 uv run pytest --cov=yfharness --cov-report=term-missing
 uv run yfh eval
 uv build
@@ -197,7 +224,7 @@ Agent Loop → Tool/Security → Storage → Context → TUI → Observability/E
 - Windows 子进程树终止是尽力而为；CI 会验证基础行为，复杂进程树仍需平台专项测试。
 - 无专用 tokenizer 时使用明确标记的近似估算；兼容服务的非标准 SSE 可能需要适配。
 - TUI 在很小终端会隐藏侧栏并显示警告；完整交互建议宽度 95 列以上。
-- 第一版不提供训练、云端账户、浏览器自动化、向量数据库或分布式多 Agent。
+- 当前不提供训练、云端账户、浏览器自动化、向量数据库或分布式多 Agent；框架适配器目前也不注入本地工具。
 
 ## Roadmap 与贡献
 

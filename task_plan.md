@@ -4,7 +4,7 @@
 在当前空工作区中交付一个可安装、可运行、可测试、可扩展、可发布的本地优先 Python LLM Agent Harness，并以真实验证证据满足用户给出的完成定义与九类验收场景。
 
 ## 当前阶段
-第一版已完成；进入维护状态
+阶段 10：高级 Agent 框架集成
 
 ## 各阶段
 
@@ -74,12 +74,28 @@
 - [x] 按九类场景完成最终验收
 - **状态：** complete
 
+### 阶段 10：LangChain、LlamaIndex、AutoGen 可选集成
+- [x] 核对三个框架当前官方 API、版本与兼容模型配置方式
+- [x] 建立统一但不掩盖能力差异的 Framework Adapter 契约
+- [x] 实现 LangChain、LlamaIndex、AutoGen 真实运行入口与缺失依赖诊断
+- [x] 提供无 API Key 的框架级离线 smoke 和兼容 Provider 集成测试
+- [x] 接入 CLI、Doctor、可选依赖、文档、CI 与发布包
+- [ ] 全量验证、全新安装、私密 GitHub 推送和六组远端 CI
+- **状态：** in_progress
+
 ## 变更简报
 - **用户可见目标：** `yfh` 在无 API Key 时以 MockProvider 完整运行，有配置时连接 OpenAI 兼容服务，并通过 TUI/CLI 安全执行 Agent 工作流。
 - **预期影响面：** Python 包、CLI/TUI 公共交互、TOML 配置、环境变量、SQLite schema、工具与审批策略、日志与导出格式、测试/CI、文档。
 - **必须保留：** 当前目录中的任何用户文件；当前检查表明目录为空且不是 Git 仓库，后续如出现外部修改必须避让。
 - **需验证假设：** Python 3.12+ 与依赖可用性；Windows 的进程取消和原子替换差异；Textual 测试终端行为；兼容服务的 SSE 变体。
 - **明确不做：** 训练/微调、分布式多 Agent、云端账户、浏览器自动化、向量数据库、大型 RAG、远程执行平台。
+
+### 阶段 10 变更简报
+- **用户可见目标：** 安装相应 extra 后，用户能通过 `yfh frameworks` 发现并真实运行 LangChain、LlamaIndex、AutoGen，既支持离线验证，也能连接现有 OpenAI 兼容 Provider。
+- **预期影响面：** 可选依赖、框架适配子包、CLI/Doctor、配置到框架客户端的映射、测试、文档、CI 和发布元数据。
+- **必须保留：** 默认安装不引入三套大型框架；现有 AgentRunner、安全工具、Mock、CLI/TUI 和配置契约保持兼容；API Key 仍不进入日志或持久化。
+- **需验证假设：** 三套框架 2026 当前 API；异步调用和用量返回差异；非 OpenAI base_url 参数；Python 3.12/3.13 与 Windows 支持。
+- **明确不做：** 用框架替换 YF-Harness 核心状态机，或把第三方框架的任意工具执行绕过现有安全边界。
 
 ## 风险与契约
 - **总体人工风险：P1。** 初始扫描因目录为空显示 P3，但完整实现将触及安全边界、子进程、持久化 schema、公共 CLI/配置和跨平台行为。
@@ -107,6 +123,10 @@
 | 环境拒绝 `rm -rf` 清理测试目录 | 1 | 使用精确文件删除和 `rmdir` 安全清理 |
 | 系统 pip 因本机 CA 链无法下载依赖 | 1 | 使用 uv 在全新 venv 正常解析并安装 wheel，完整 smoke 通过 |
 | uv 离线新环境缺少缓存的 Pydantic wheel | 1 | 改用 uv 正常解析；未修改依赖约束或绕过运行时依赖 |
+| PyPI 版本查询的 jq 命令引号损坏 | 1 | 改用不插入 shell 变量的固定 jq TSV 过滤器，成功取得六个官方包版本 |
+| LlamaIndex `FunctionAgent` 拒绝普通 MockLLM | 1 | 依据运行时约束改用官方 Workflow `ReActAgent`，并实现 `CustomLLM` 离线响应 |
+| AutoGen 无工具 Agent 仍校验 function calling 能力 | 1 | 按 `ChatCompletionClient.model_info` 契约声明能力，离线和远程 smoke 均通过 |
+| LlamaIndex 远程用量初次落入估算 | 1 | 从 `AgentOutput.raw.usage` 归一化真实 prompt/completion token，并加断言 |
 
 ## 备注
 - `PLAN.md` 是面向项目用户的阶段与验收计划；本文件是技能要求的持续工作记忆。
