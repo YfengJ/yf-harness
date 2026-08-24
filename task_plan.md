@@ -148,6 +148,7 @@
 | LlamaIndex 远程用量初次落入估算 | 1 | 从 `AgentOutput.raw.usage` 归一化真实 prompt/completion token，并加断言 |
 | Nuitka 4.1 不支持 `--macos-app-identifier` | 1 | 移除无效参数，在签名前用 PlistBuddy 设置 Bundle 名称与反向域名标识 |
 | 仅安装 PySide6 Essentials 时部署器解析到缺失的 StateMachine QML framework | 1 | 桌面依赖改回官方完整 PySide6 组合，避免生成缺失运行库的脆弱 Bundle |
+| 首轮远端桌面 Job 缺少 Linux `libEGL.so.1`，核心矩阵未安装 Qt 时 mypy 分析 GUI 失败 | 1 | 桌面 Job 安装 libegl1 并独立 mypy；核心 mypy 排除可选桌面目录，职责分层验证 |
 
 ## 备注
 - `PLAN.md` 是面向项目用户的阶段与验收计划；本文件是技能要求的持续工作记忆。

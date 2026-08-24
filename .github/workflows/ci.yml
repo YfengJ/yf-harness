@@ -64,6 +64,8 @@ jobs:
         with:
           python-version: "3.12"
           enable-cache: true
+      - run: sudo apt-get update && sudo apt-get install -y libegl1
       - run: uv sync --extra dev --extra desktop --locked
+      - run: uv run mypy --config-file packaging/mypy-desktop.ini src/yfharness/desktop
       - run: uv run pytest -m desktop tests/integration/test_desktop.py
       - run: uv run yfh-desktop --smoke-test

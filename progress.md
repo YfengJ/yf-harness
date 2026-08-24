@@ -114,6 +114,7 @@
 | 2026-08-24 | macOS App 构建 | `YF-Harness.app` 0.3.0 生成；签名、Plist、LaunchServices 启动和 Bundle 截图通过 |
 | 2026-08-24 | 阶段 11 Eval/构建 | 20/20 Eval；0.3.0 sdist/wheel 成功，wheel 包含 QML 与图标资源 |
 | 2026-08-24 | 阶段 11 Change Radar | P1/54，无 blocking gaps；依赖、CI、部署和运行路径均有直接验证证据 |
+| 2026-08-24 | 首轮 0.3.0 CI | minimal-install 通过；桌面 Job 暴露 Linux libEGL 缺失，核心矩阵暴露可选 Qt mypy 分层问题，已补充独立依赖与类型门 |
 
 ## 错误与修复
 

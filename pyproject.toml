@@ -115,6 +115,7 @@ strict = true
 packages = ["yfharness"]
 mypy_path = "src"
 plugins = ["pydantic.mypy"]
+exclude = ["^src/yfharness/desktop/"]
 
 [[tool.mypy.overrides]]
 module = ["PySide6.*", "textual.*"]
