@@ -115,6 +115,7 @@
 | 2026-08-24 | 阶段 11 Eval/构建 | 20/20 Eval；0.3.0 sdist/wheel 成功，wheel 包含 QML 与图标资源 |
 | 2026-08-24 | 阶段 11 Change Radar | P1/54，无 blocking gaps；依赖、CI、部署和运行路径均有直接验证证据 |
 | 2026-08-24 | 首轮 0.3.0 CI | minimal-install 通过；桌面 Job 暴露 Linux libEGL 缺失，核心矩阵暴露可选 Qt mypy 分层问题，已补充独立依赖与类型门 |
+| 2026-08-24 | 最终 0.3.0 CI `32747275102` | minimal-install、desktop-smoke 与 Linux/macOS/Windows × Python 3.12/3.13 全部通过 |
 
 ## 错误与修复
 
@@ -132,5 +133,6 @@
 - Eval 自动化首次 19/20：符号链接用例在共享临时父目录创建固定名 `outside`，被前次运行污染；改为独立临时外部目录并自动回收。
 - 系统 pip 在全新 venv 下载依赖时遇到本机 SSL CA 验证失败；uv 使用自己的受信传输在另一全新 venv 成功解析、安装同一 wheel 并运行，确认产物和依赖元数据有效。
 - 最终全量复跑偶发 Textual Worker 退出上下文警告；集成测试改为等待完整 Worker（含 Trace 和会话刷新）结束，专项连续 5 次及全量严格警告模式均无告警。
+- Windows 3.13 首次桌面版 CI 在 TUI 新会话 Worker 完成前执行断言；测试改为等待 Worker 契约，最终八个 CI Job 全绿。
 
 > 只有实际执行过的命令才会进入本表；后续每阶段完成后同步更新。

@@ -90,8 +90,8 @@
 - [x] 加入精致的空状态、响应式布局、动效、快捷键和错误反馈
 - [x] 提供 macOS `.app` 构建脚本、图标、桌面 extra 与安装文档
 - [x] 完成无头 UI 测试、全量回归、实际 `.app` 构建/启动验证
-- [ ] 推送私密 GitHub 并等待跨平台 CI
-- **状态：** in_progress
+- [x] 推送私密 GitHub 并等待跨平台 CI
+- **状态：** complete
 
 ## 变更简报
 - **用户可见目标：** `yfh` 在无 API Key 时以 MockProvider 完整运行，有配置时连接 OpenAI 兼容服务，并通过 TUI/CLI 安全执行 Agent 工作流。
@@ -149,6 +149,7 @@
 | Nuitka 4.1 不支持 `--macos-app-identifier` | 1 | 移除无效参数，在签名前用 PlistBuddy 设置 Bundle 名称与反向域名标识 |
 | 仅安装 PySide6 Essentials 时部署器解析到缺失的 StateMachine QML framework | 1 | 桌面依赖改回官方完整 PySide6 组合，避免生成缺失运行库的脆弱 Bundle |
 | 首轮远端桌面 Job 缺少 Linux `libEGL.so.1`，核心矩阵未安装 Qt 时 mypy 分析 GUI 失败 | 1 | 桌面 Job 安装 libegl1 并独立 mypy；核心 mypy 排除可选桌面目录，职责分层验证 |
+| Windows 3.13 TUI 集成测试偶发在会话 Worker 完成前断言 | 1 | 测试等待 Textual Worker 明确完成；复跑后全部八个 CI Job 通过 |
 
 ## 备注
 - `PLAN.md` 是面向项目用户的阶段与验收计划；本文件是技能要求的持续工作记忆。
