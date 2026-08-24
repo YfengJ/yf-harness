@@ -19,7 +19,10 @@ async def test_tui_mounts_creates_session_and_runs_mock(
     async with app.run_test(size=(120, 40)) as pilot:
         assert app.query_one("#run-state").renderable == "空闲"  # type: ignore[attr-defined]
         await pilot.press("ctrl+n")
-        await pilot.pause()
+        # Session creation runs in a Textual worker.  A single event-loop tick is
+        # not enough on slower Windows runners, so wait for the worker contract
+        # instead of relying on scheduler timing.
+        await app.workers.wait_for_complete()
         assert app.current_session_id is not None
 
         prompt = app.query_one("#prompt", TextArea)
