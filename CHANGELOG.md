@@ -6,6 +6,21 @@
 
 - 等待社区反馈与首个补丁版本。
 
+## [0.3.0] - 2026-08-24
+
+### Added
+
+- PySide6 + Qt Quick 原生桌面工作区，支持会话、流式消息、Provider/模型/模式/权限设置和取消。
+- 桌面工具审批桥接，复用原有 AgentRunner、SQLite、Policy 与 WorkspaceGuard。
+- `yfh desktop` / `yfh-desktop` 入口，以及 `desktop` 和 `desktop-build` 可选依赖。
+- macOS 图标、`pyside6-deploy` 配置与一键 `.app` 构建/签名/启动验证脚本。
+- 无头 QML smoke、真实 MockProvider 桌面运行测试和脱敏的真实 Bundle 截图。
+
+### Changed
+
+- 产品入口由终端优先改为桌面优先；Textual TUI 与无界面 CLI 继续兼容。
+- CLI 单次运行支持外部事件、审批与 Runner 回调，供桌面 Bridge 复用而不复制核心流程。
+
 ## [0.2.0] - 2026-08-24
 
 ### Added

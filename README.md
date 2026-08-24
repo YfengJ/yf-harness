@@ -1,8 +1,9 @@
 # YF-Harness
 
-YF-Harness 是一个本地优先、终端优先、模型无关的个人 LLM Agent Harness。它不是训练框架，
-也不只是 API 聊天客户端：它统一 Provider 流式事件，运行有边界的 Agent 状态机，安全调用文件、
-搜索、Patch、Shell 和 Git 工具，并保存会话、Trace、Token、成本、审批与评测记录。
+YF-Harness 是一个本地优先、桌面优先、模型无关的个人 LLM Agent Harness。它提供可双击启动的
+原生桌面工作区，同时保留 CLI/TUI 作为自动化和兼容入口。它统一 Provider 流式事件，运行有边界的
+Agent 状态机，安全调用文件、搜索、Patch、Shell 和 Git 工具，并保存会话、Trace、Token、成本、
+审批与评测记录。
 
 项目名：YF-Harness · Python 包：`yfharness` · CLI：`yfh` · Python：3.12+ · License：MIT。
 
@@ -20,6 +21,7 @@ LlamaIndex 和 AutoGen 通过可选、惰性加载的适配层接入，既保留
 - 15 个真实工具；Pydantic 参数校验、审批策略、Diff 预览、原子写入和 `/undo`。
 - 路径穿越与符号链接逃逸防护；Shell 超时、进程组终止、输出限制和环境脱敏。
 - SQLite 会话、运行、消息、模型事件、工具、审批、用量、上下文和文件变更记录。
+- PySide6 + Qt Quick 原生桌面 App：会话导航、流式对话、模型/模式设置、取消和工具审批。
 - Textual 三栏 TUI：流式 Markdown、会话、工具折叠、审批、设置、诊断和响应式布局。
 - 项目指令、手动/自动文件上下文、Token 预算与八字段结构化压缩。
 - 轮转文本/JSONL 日志、Trace、只读 Replay 和 20 类离线 Eval。
@@ -27,13 +29,15 @@ LlamaIndex 和 AutoGen 通过可选、惰性加载的适配层接入，既保留
 
 ## 截图
 
-发布截图约定存放在 `docs/images/`；运行 `yfh tui` 即可查看当前真实界面。仓库不提交依赖特定终端
-字体与主题的伪截图，贡献者可按 [`docs/images/README.md`](docs/images/README.md) 的方法更新。
+![YF-Harness 桌面应用](docs/images/desktop-app.png)
+
+这是由打包后的真实 macOS App 渲染的界面。更新方法见
+[`docs/images/README.md`](docs/images/README.md)。
 
 ## 架构概览
 
 ```text
-CLI / Textual TUI
+Qt Quick Desktop / CLI / Textual TUI
         │
         ▼
 AgentRunner ── ContextBuilder
@@ -57,6 +61,13 @@ uv sync --extra dev
 uv run yfh --help
 ```
 
+启动桌面版：
+
+```bash
+uv sync --extra desktop
+uv run yfh desktop
+```
+
 需要全部高级框架时：
 
 ```bash
@@ -77,14 +88,24 @@ yfh --help
 ## 无 API Key 快速体验
 
 ```bash
-yfh run --provider mock "你好"
-yfh run --provider mock --output json "离线 JSON 输出"
-printf '从 stdin 读取' | yfh run --provider mock
-yfh tui
+uv run yfh desktop
 ```
 
 Mock 是默认 Provider；首次运行会在 platformdirs 对应的用户数据目录创建 SQLite，而不是把历史写入仓库。
 使用 `--no-save` 可运行一次性任务。
+
+## macOS App：双击即用
+
+仓库已经提供一键构建脚本。它会生成自包含 App Bundle、创建图标、进行本机临时签名，并实际启动验证：
+
+```bash
+./scripts/build_macos_app.sh
+open dist/YF-Harness.app
+```
+
+也可以在 Finder 中直接双击 `dist/YF-Harness.app`，或把它拖入“应用程序”。本地构建采用 ad-hoc
+签名，适合本机使用；发给其他人之前仍需 Apple Developer ID 签名和 notarization。完整说明见
+[`docs/DESKTOP_APP.md`](docs/DESKTOP_APP.md)。
 
 ## 配置 DeepSeek 或其他兼容服务
 
@@ -123,7 +144,7 @@ yfh run --provider deepseek --model deepseek_chat "你好"
 配置优先级：CLI > `YFH_*` 环境变量 > `.yfh/config.toml` > 用户配置 > 默认值。
 API Key 只通过 `api_key_env` 指定的环境变量读取，不写入配置展开结果、数据库、日志或导出。
 
-## TUI
+## 兼容 TUI
 
 ```bash
 yfh tui
@@ -203,6 +224,7 @@ uv run ruff check .
 uv run ruff format --check .
 uv run mypy src
 uv run pytest
+uv run pytest -m desktop
 uv run pytest -m frameworks
 uv run pytest --cov=yfharness --cov-report=term-missing
 uv run yfh eval
@@ -223,7 +245,8 @@ Agent Loop → Tool/Security → Storage → Context → TUI → Observability/E
 - Shell 网络控制是风险识别与审批，不是操作系统级网络隔离；高对抗场景应放入容器/沙箱。
 - Windows 子进程树终止是尽力而为；CI 会验证基础行为，复杂进程树仍需平台专项测试。
 - 无专用 tokenizer 时使用明确标记的近似估算；兼容服务的非标准 SSE 可能需要适配。
-- TUI 在很小终端会隐藏侧栏并显示警告；完整交互建议宽度 95 列以上。
+- 自包含 macOS App 会携带 Qt 运行时，因此体积明显大于 Python wheel；公开分发还需要正式签名与公证。
+- TUI 是兼容入口，在很小终端会隐藏侧栏并显示警告；完整交互建议宽度 95 列以上。
 - 当前不提供训练、云端账户、浏览器自动化、向量数据库或分布式多 Agent；框架适配器目前也不注入本地工具。
 
 ## Roadmap 与贡献

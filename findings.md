@@ -50,3 +50,15 @@
 - 0.2.0 wheel 的默认 `Requires-Dist` 仍只有原有 8 个轻量运行依赖；三套 SDK 仅出现在各自 extra 与聚合 `frameworks` extra。隔离默认环境确认三个 import spec 均不存在。
 - 最终 Change Radar 为 P1/64 且无 blocking gaps；主要风险来自预期的 lockfile、CI 和公共 CLI 变更，已分别用锁定同步、两类全新安装、真实 CLI/HTTP 测试和全量矩阵配置覆盖。
 - GitHub Actions run `32651042271` 验证：不安装框架的默认环境可运行并通过非框架回归；安装聚合 extra 后，Ubuntu、macOS、Windows 的 Python 3.12/3.13 均通过 lint、format、mypy、101 项测试/覆盖率门、20 类 Eval、构建和产物上传。
+
+## 阶段 11：桌面化调研与视觉决策（2026-08-24）
+- 用户明确否定“终端里的 TUI”作为最终形态，要求真正可双击打开的软件以及整体视觉重做；因此 Textual 仅保留兼容，不再作为默认图形产品界面。
+- 选择 PySide6 + Qt Quick/QML：保持 Python 核心单进程集成，提供真正独立原生窗口；Qt 官方 `pyside6-deploy` 支持 Windows/Linux/macOS，并在 macOS 直接产出 `.app`。
+- Qt 官方建议优先使用 `pyside6-deploy`，其底层使用 Nuitka；QML 文件与图标可显式进入 deployment spec，适合项目需要的独立资源和跨平台产物。
+- Python/QML 边界使用 `QObject`、`Signal`、`Slot`；耗时 Agent 请求必须在线程中的独立 asyncio loop 执行，再通过 queued signal 回到 UI 线程，不能阻塞 Qt event loop。
+- 第一版桌面 App 优先做到真实可用：Mock 与远程 Provider、已有会话读取/创建、发送/取消、模式/权限选择、状态与错误反馈；复杂审批弹窗若接入必须继续调用同一 Approval 回调，不能默认放行。
+- 最终桌面 Bridge 通过 `_run_once` 的 event/approval/runner 回调复用完整核心链；实际 Mock 消息、SQLite 会话和取消状态均进入相同路径。
+- `pyside6-deploy` 在 macOS 实际生成可启动 `.app`；Bundle 已写入 `YF-Harness`、0.3.0 与 `local.yfharness.desktop`，ad-hoc codesign 与 LaunchServices smoke 通过。
+- Qt 官方部署器对 QML 使用完整插件收集，自包含 Bundle 约 491 MB；保留完整 PySide6 是为避免 Essentials-only 部署解析缺失 QML framework。该体积是已知发布成本，不影响默认 wheel，Qt 仍只属于可选 extra。
+- 发布截图直接由构建后的 Bundle 生成，预览 workspace 使用匿名值，未包含用户名、密钥或真实会话。
+- 最终 Change Radar P1/54，无 blocking gaps；103 项全量测试、81.95% 核心覆盖率、20/20 Eval、静态检查、wheel 资源检查与真实 App 构建共同覆盖风险。

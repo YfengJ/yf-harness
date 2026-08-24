@@ -4,7 +4,7 @@
 在当前空工作区中交付一个可安装、可运行、可测试、可扩展、可发布的本地优先 Python LLM Agent Harness，并以真实验证证据满足用户给出的完成定义与九类验收场景。
 
 ## 当前阶段
-阶段 10：高级 Agent 框架集成
+阶段 11：原生桌面 App 与视觉重构
 
 ## 各阶段
 
@@ -83,6 +83,16 @@
 - [x] 全量验证、全新安装、私密 GitHub 推送和六组远端 CI
 - **状态：** complete
 
+### 阶段 11：原生桌面 App 与视觉重构
+- [x] 建立 PySide6 / Qt Quick 桌面壳与可测试的异步 Bridge
+- [x] 重构为桌面级工作区：导航、会话、聊天、运行状态、Provider/模型/模式控制
+- [x] 接入现有 AgentRunner、SQLite 会话、取消与安全审批链
+- [x] 加入精致的空状态、响应式布局、动效、快捷键和错误反馈
+- [x] 提供 macOS `.app` 构建脚本、图标、桌面 extra 与安装文档
+- [x] 完成无头 UI 测试、全量回归、实际 `.app` 构建/启动验证
+- [ ] 推送私密 GitHub 并等待跨平台 CI
+- **状态：** in_progress
+
 ## 变更简报
 - **用户可见目标：** `yfh` 在无 API Key 时以 MockProvider 完整运行，有配置时连接 OpenAI 兼容服务，并通过 TUI/CLI 安全执行 Agent 工作流。
 - **预期影响面：** Python 包、CLI/TUI 公共交互、TOML 配置、环境变量、SQLite schema、工具与审批策略、日志与导出格式、测试/CI、文档。
@@ -96,6 +106,15 @@
 - **必须保留：** 默认安装不引入三套大型框架；现有 AgentRunner、安全工具、Mock、CLI/TUI 和配置契约保持兼容；API Key 仍不进入日志或持久化。
 - **需验证假设：** 三套框架 2026 当前 API；异步调用和用量返回差异；非 OpenAI base_url 参数；Python 3.12/3.13 与 Windows 支持。
 - **明确不做：** 用框架替换 YF-Harness 核心状态机，或把第三方框架的任意工具执行绕过现有安全边界。
+
+### 阶段 11 变更简报
+- **用户可见目标：** 不再把 TUI 当主界面，交付可双击启动的独立桌面窗口和 macOS `.app`，并彻底提升视觉、交互与信息层级。
+- **视觉命题：** 深墨色工作台配一条暖琥珀强调色，像一款安静、精密的本地开发工具；主要空间留给对话而非卡片装饰。
+- **内容计划：** 左侧会话导航；中央对话与输入；顶部任务上下文和运行状态；右侧按需展开的模型/模式设置；首次启动使用明确空状态。
+- **交互命题：** 首屏元素分层淡入、运行状态呼吸提示、侧栏/检查器平滑展开；所有动效快速克制且不阻塞操作。
+- **预期影响面：** 新桌面子包与 QML 资源、异步线程桥、依赖 extras、打包配置/脚本、图标、CLI 入口、测试、文档和 CI。
+- **必须保留：** 原有 CLI/TUI 可继续运行；核心 AgentRunner、Provider、SQLite、安全审批与密钥规则不复制、不绕过；用户数据仍在 platformdirs 目录。
+- **明确不做：** 用网页伪装桌面程序、要求用户先打开终端、把未经签名的构建声称为可公开分发的正式安装包，或为视觉重构改写核心执行协议。
 
 ## 风险与契约
 - **总体人工风险：P1。** 初始扫描因目录为空显示 P3，但完整实现将触及安全边界、子进程、持久化 schema、公共 CLI/配置和跨平台行为。
@@ -127,6 +146,8 @@
 | LlamaIndex `FunctionAgent` 拒绝普通 MockLLM | 1 | 依据运行时约束改用官方 Workflow `ReActAgent`，并实现 `CustomLLM` 离线响应 |
 | AutoGen 无工具 Agent 仍校验 function calling 能力 | 1 | 按 `ChatCompletionClient.model_info` 契约声明能力，离线和远程 smoke 均通过 |
 | LlamaIndex 远程用量初次落入估算 | 1 | 从 `AgentOutput.raw.usage` 归一化真实 prompt/completion token，并加断言 |
+| Nuitka 4.1 不支持 `--macos-app-identifier` | 1 | 移除无效参数，在签名前用 PlistBuddy 设置 Bundle 名称与反向域名标识 |
+| 仅安装 PySide6 Essentials 时部署器解析到缺失的 StateMachine QML framework | 1 | 桌面依赖改回官方完整 PySide6 组合，避免生成缺失运行库的脆弱 Bundle |
 
 ## 备注
 - `PLAN.md` 是面向项目用户的阶段与验收计划；本文件是技能要求的持续工作记忆。

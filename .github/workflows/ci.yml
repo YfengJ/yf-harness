@@ -52,3 +52,18 @@ jobs:
       - run: uv sync --extra dev --locked
       - run: uv run yfh frameworks list
       - run: uv run pytest -m "not frameworks"
+
+  desktop-smoke:
+    runs-on: ubuntu-latest
+    env:
+      QT_QPA_PLATFORM: offscreen
+      QSG_RHI_BACKEND: software
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: astral-sh/setup-uv@v10.0.1
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --extra dev --extra desktop --locked
+      - run: uv run pytest -m desktop tests/integration/test_desktop.py
+      - run: uv run yfh-desktop --smoke-test

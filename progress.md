@@ -2,8 +2,8 @@
 
 ## 当前状态
 
-- 当前阶段：阶段 10（高级 Agent 框架集成）
-- 整体状态：0.1.0 稳定基线之上继续开发
+- 当前阶段：阶段 11（原生桌面 App 与视觉重构）
+- 整体状态：0.3.0 桌面版已完成本地发布门，待远端 CI
 - 初始仓库：空目录、非 Git 仓库
 - 当前风险：P1（安全边界、子进程、持久化、CLI/TUI 公共契约）
 
@@ -16,6 +16,10 @@
 - 完成阶段 0 的规划、风险、契约和验收基线。
 
 ## 当前进行
+
+- TUI 已转为兼容入口；PySide6 + Qt Quick/QML 成为主界面，并以官方 `pyside6-deploy` 生成 macOS `.app`。
+- 桌面 Bridge、QML 工作区、会话/模型/模式控制、取消、安全审批、图标、打包脚本和桌面文档均已完成。
+- 本机 `dist/YF-Harness.app` 已完成 ad-hoc 签名、Plist 校验、LaunchServices smoke 和真实 Bundle 截图；待推送私密 GitHub 并等待 CI。
 
 - 正在将 LangChain、LlamaIndex、AutoGen 作为可选真实集成层加入项目；先依据官方 API 锁定适配契约。
 - 约束：默认安装继续轻量；第三方框架不能绕过 YF-Harness 的 Provider 密钥规则和工具安全边界。
@@ -105,6 +109,11 @@
 | 2026-08-24 | GitHub CI `32651042271` | minimal-install 与 Linux/macOS/Windows × Python 3.12/3.13 共七个 Job 全绿 |
 | 2026-08-24 | 阶段 10 Eval/构建 | 20/20 Eval；成功构建 0.2.0 sdist/wheel |
 | 2026-08-24 | 0.2.0 隔离安装 | 默认安装确认无框架 SDK；`[frameworks]` wheel 安装后 LangChain/LlamaIndex/AutoGen smoke 全通过 |
+| 2026-08-24 | 阶段 11 桌面专项 | 2 passed；真实 MockProvider 会话持久化与无头 QML 启动通过 |
+| 2026-08-24 | 阶段 11 全量 | 103 passed；81.95% 核心覆盖率，Ruff/格式/mypy 全通过 |
+| 2026-08-24 | macOS App 构建 | `YF-Harness.app` 0.3.0 生成；签名、Plist、LaunchServices 启动和 Bundle 截图通过 |
+| 2026-08-24 | 阶段 11 Eval/构建 | 20/20 Eval；0.3.0 sdist/wheel 成功，wheel 包含 QML 与图标资源 |
+| 2026-08-24 | 阶段 11 Change Radar | P1/54，无 blocking gaps；依赖、CI、部署和运行路径均有直接验证证据 |
 
 ## 错误与修复
 

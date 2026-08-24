@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "yf-harness"
-version = "0.2.0"
-description = "Local-first, terminal-first, provider-neutral LLM agent harness"
+version = "0.3.0"
+description = "Local-first desktop and terminal LLM agent harness"
 readme = "README.md"
 requires-python = ">=3.12"
 license = { file = "LICENSE" }
@@ -34,6 +34,15 @@ Repository = "https://github.com/YfengJ/yf-harness.git"
 Issues = "https://github.com/YfengJ/yf-harness/issues"
 
 [project.optional-dependencies]
+desktop = [
+  "PySide6>=6.10,<6.12",
+]
+desktop-build = [
+  "Nuitka>=4.1,<5",
+  "PySide6>=6.10,<6.12",
+  "ordered-set>=4.1,<5",
+  "zstandard>=0.25,<1",
+]
 langchain = [
   "langchain>=1.3,<2",
   "langchain-openai>=1.6,<2",
@@ -66,6 +75,7 @@ dev = [
 
 [project.scripts]
 yfh = "yfharness.cli:main"
+yfh-desktop = "yfharness.desktop.app:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/yfharness"]
@@ -78,11 +88,13 @@ addopts = "-ra --strict-config --strict-markers"
 asyncio_mode = "auto"
 testpaths = ["tests"]
 markers = [
+  "desktop: requires the optional PySide6 desktop integration",
   "frameworks: requires the optional LangChain, LlamaIndex, and AutoGen integrations",
 ]
 
 [tool.coverage.run]
 source = ["yfharness"]
+omit = ["src/yfharness/desktop/*"]
 
 [tool.coverage.report]
 fail_under = 80
@@ -105,5 +117,5 @@ mypy_path = "src"
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["textual.*"]
+module = ["PySide6.*", "textual.*"]
 ignore_missing_imports = true

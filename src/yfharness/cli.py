@@ -7,6 +7,7 @@ import json
 import sqlite3
 import sys
 import time
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Annotated
 
@@ -155,6 +156,18 @@ def tui() -> None:
 
 
 @app.command()
+def desktop() -> None:
+    """启动独立的 YF-Harness 桌面应用。"""
+
+    try:
+        from yfharness.desktop.app import main as desktop_main
+    except ImportError as exc:
+        typer.echo("错误：桌面组件未安装；请运行 pip install 'yf-harness[desktop]'。", err=True)
+        raise typer.Exit(code=1) from exc
+    desktop_main()
+
+
+@app.command()
 def chat(
     provider: Annotated[str | None, typer.Option("--provider")] = None,
     model: Annotated[str | None, typer.Option("--model")] = None,
@@ -278,6 +291,9 @@ async def _run_once(
     save: bool = True,
     mode: AgentMode = AgentMode.AGENT,
     permissions: ApprovalPolicy = ApprovalPolicy.SAFE_AUTO,
+    event_sink: Callable[[AgentEvent], Awaitable[None]] | None = None,
+    approval_handler: Callable[[ApprovalRequest], Awaitable[ApprovalDecision]] | None = None,
+    runner_sink: Callable[[AgentRunner], None] | None = None,
 ) -> dict[str, object]:
     config = load_config()
     provider = provider_from_config(config, provider_name)
@@ -339,7 +355,9 @@ async def _run_once(
         )
 
     async def approve(request: ApprovalRequest) -> ApprovalDecision:
-        if not sys.stdin.isatty():
+        if approval_handler is not None:
+            decision = await approval_handler(request)
+        elif not sys.stdin.isatty():
             decision = ApprovalDecision.DENY
         else:
             typer.echo(f"\n工具审批: {request.tool_call.name} [{request.risk_level.value}]")
@@ -366,6 +384,8 @@ async def _run_once(
 
     async def observe(event: AgentEvent) -> None:
         observed_events.append(event)
+        if event_sink is not None:
+            await event_sink(event)
         if not stream or not isinstance(event, ModelEventObserved):
             return
         if model_config.supports_native_tools and isinstance(event.event, TextDelta):
@@ -401,6 +421,8 @@ async def _run_once(
         event_sink=observe,
         context_builder=ContextBuilder(config.workspace, provider.estimate_tokens),
     )
+    if runner_sink is not None:
+        runner_sink(runner)
     started = time.monotonic()
     context = TraceContext(
         run_id=run_record.run_id if run_record is not None else "ephemeral",

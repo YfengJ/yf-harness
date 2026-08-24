@@ -1,10 +1,10 @@
 # 架构
 
-YF-Harness 采用端口与适配器式分层：核心只认识领域对象和抽象协议，CLI/TUI、Provider、工具、存储是边缘适配器。依赖始终指向核心，供应商响应和数据库行不能成为跨层契约。
+YF-Harness 采用端口与适配器式分层：核心只认识领域对象和抽象协议，Qt 桌面、CLI/TUI、Provider、工具、存储是边缘适配器。依赖始终指向核心，供应商响应和数据库行不能成为跨层契约。
 
 ```mermaid
 flowchart TB
-  U[用户] --> UI[Typer CLI / Textual TUI]
+  U[用户] --> UI[Qt Quick Desktop / Typer CLI / Textual TUI]
   UI --> FI[Optional Framework Adapters]
   FI --> LC[LangChain / LlamaIndex / AutoGen]
   LC --> FC[Framework-native OpenAI-compatible Clients]
@@ -26,6 +26,10 @@ flowchart TB
 ```
 
 一次请求由界面创建领域消息，经上下文预算后交给 Provider。统一事件驱动输出或工具调用；工具结果作为新消息回到同一循环，直到完成、取消或触发预算。Repository 记录可恢复事实，日志记录运行诊断，两者都在写入前脱敏。
+
+桌面 Bridge 在单工作线程中运行独立 asyncio loop，并以 Qt queued signal 把事件送回 GUI 线程。
+它调用 CLI 已抽出的 `_run_once` 编排入口，因此桌面、CLI 与 TUI 共享 Provider、AgentRunner、审批、
+持久化和 Trace，不存在一条绕过安全边界的“图形界面捷径”。
 
 关键扩展点是 `Provider`、`Tool`、策略与 Repository，而不是复制 AgentRunner。新增实现应保持事件、Schema、错误和取消语义稳定。
 

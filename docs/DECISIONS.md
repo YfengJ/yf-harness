@@ -1,5 +1,13 @@
 # 架构决策记录
 
+## ADR-009：桌面主界面采用 Qt Quick，TUI 保留兼容
+
+状态：接受。PySide6 + Qt Quick 提供真正独立的桌面窗口和 macOS App Bundle，Python Bridge 复用现有
+AgentRunner 与 Repository。Qt 只放在 `desktop` extra 中，默认 CLI wheel 不强制安装大型 GUI 运行时。
+
+替代方案：继续把 Textual TUI 当主界面；拒绝，因为它始终运行在终端。浏览器/Electron 壳也被拒绝，
+因为当前本地 Python 核心无需额外服务进程。代价是自包含 Qt App 体积较大，正式公开分发还需平台签名与公证。
+
 ## ADR-001：核心不采用高级 Agent 框架，可选边界允许原生集成
 
 状态：修订后接受。核心继续直接实现事件、循环和策略，使边界可学习、可测试、供应商中立；
