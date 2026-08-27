@@ -22,6 +22,7 @@ ApplicationWindow {
     readonly property color accent: "#D8A25E"
     readonly property color success: "#77B88D"
     property string approvalId: ""
+    property int inspectorTab: 0
 
     function selectValue(combo, value) {
         var index = combo.find(value)
@@ -30,7 +31,7 @@ ApplicationWindow {
 
     function sendCurrentPrompt() {
         var value = promptInput.text.trim()
-        if (!value || controller.busy)
+        if (!value)
             return
         controller.sendMessage(value, providerSelect.currentText, modelSelect.currentText,
                                modeSelect.currentText, permissionSelect.currentText)
@@ -656,6 +657,39 @@ ApplicationWindow {
                 }
 
                 Rectangle {
+                    visible: controller ? controller.queueCount > 0 : false
+                    Layout.fillWidth: true
+                    Layout.leftMargin: Math.max(26, (workspace.width - 900) / 2)
+                    Layout.rightMargin: Math.max(26, (workspace.width - 900) / 2)
+                    Layout.preferredHeight: 42
+                    radius: 10
+                    color: "#151B20"
+                    border.color: root.line
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: 14
+                        anchors.rightMargin: 8
+                        spacing: 9
+                        Text { text: "≡"; color: root.accent; font.pixelSize: 14 }
+                        Text {
+                            text: controller ? controller.queueCount + " 个后续任务已排队" : ""
+                            color: root.textSecondary
+                            font.pixelSize: 11
+                        }
+                        Item { Layout.fillWidth: true }
+                        QuietButton {
+                            label: "继续"
+                            enabled: controller ? !controller.busy : false
+                            onClicked: controller.resumeQueue()
+                        }
+                        QuietButton {
+                            label: "清空"
+                            onClicked: controller.clearQueue()
+                        }
+                    }
+                }
+
+                Rectangle {
                     Layout.fillWidth: true
                     Layout.leftMargin: Math.max(26, (workspace.width - 900) / 2)
                     Layout.rightMargin: Math.max(26, (workspace.width - 900) / 2)
@@ -699,10 +733,10 @@ ApplicationWindow {
                             }
                             Item { Layout.fillWidth: true }
                             QuietButton {
-                                label: controller && controller.busy ? "运行中" : "发送"
-                                glyph: controller && controller.busy ? "◌" : "↑"
+                                label: controller && controller.busy ? "排队" : "发送"
+                                glyph: controller && controller.busy ? "+" : "↑"
                                 prominent: true
-                                enabled: controller ? !controller.busy && promptInput.text.trim().length > 0 : false
+                                enabled: controller ? promptInput.text.trim().length > 0 : false
                                 onClicked: root.sendCurrentPrompt()
                             }
                         }
@@ -725,80 +759,303 @@ ApplicationWindow {
 
             ColumnLayout {
                 anchors.fill: parent
-                anchors.margins: 20
+                anchors.margins: 16
                 spacing: 0
-                Text {
-                    text: "运行设置"
-                    color: root.textPrimary
-                    font.pixelSize: 14
-                    font.weight: Font.DemiBold
-                }
-                Text {
-                    Layout.topMargin: 5
-                    text: "仅作用于下一次任务"
-                    color: root.textMuted
-                    font.pixelSize: 10
-                }
-
-                Text { Layout.topMargin: 24; text: "PROVIDER"; color: root.textMuted; font.pixelSize: 9; font.letterSpacing: 0.9 }
-                ControlSelect {
-                    id: providerSelect
+                RowLayout {
                     Layout.fillWidth: true
-                    Layout.topMargin: 7
-                    model: controller ? controller.providerOptions : []
-                    onActivated: {
-                        modelSelect.model = controller.modelsForProvider(currentText)
-                        modelSelect.currentIndex = 0
+                    Text {
+                        text: "工作台"
+                        color: root.textPrimary
+                        font.pixelSize: 14
+                        font.weight: Font.DemiBold
+                    }
+                    Item { Layout.fillWidth: true }
+                    Text {
+                        text: controller && controller.busy ? "● LIVE" : "LOCAL"
+                        color: controller && controller.busy ? root.accent : root.textMuted
+                        font.pixelSize: 9
+                        font.letterSpacing: 0.8
                     }
                 }
 
-                Text { Layout.topMargin: 17; text: "MODEL"; color: root.textMuted; font.pixelSize: 9; font.letterSpacing: 0.9 }
-                ControlSelect {
-                    id: modelSelect
+                RowLayout {
                     Layout.fillWidth: true
-                    Layout.topMargin: 7
+                    Layout.topMargin: 16
+                    spacing: 2
+                    Repeater {
+                        model: ["运行", "上下文", "变更"]
+                        Rectangle {
+                            required property string modelData
+                            required property int index
+                            Layout.fillWidth: true
+                            height: 34
+                            radius: 8
+                            color: root.inspectorTab === index ? "#242B31" : "transparent"
+                            Text {
+                                anchors.centerIn: parent
+                                text: modelData
+                                color: root.inspectorTab === index ? root.textPrimary : root.textMuted
+                                font.pixelSize: 11
+                                font.weight: root.inspectorTab === index ? Font.DemiBold : Font.Normal
+                            }
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: root.inspectorTab = index
+                            }
+                            Behavior on color { ColorAnimation { duration: 120 } }
+                        }
+                    }
                 }
 
-                Text { Layout.topMargin: 17; text: "MODE"; color: root.textMuted; font.pixelSize: 9; font.letterSpacing: 0.9 }
-                ControlSelect {
-                    id: modeSelect
+                StackLayout {
                     Layout.fillWidth: true
-                    Layout.topMargin: 7
-                    model: ["agent", "chat", "plan", "review"]
-                    currentIndex: 0
-                }
-
-                Text { Layout.topMargin: 17; text: "PERMISSIONS"; color: root.textMuted; font.pixelSize: 9; font.letterSpacing: 0.9 }
-                ControlSelect {
-                    id: permissionSelect
-                    Layout.fillWidth: true
-                    Layout.topMargin: 7
-                    model: ["safe_auto", "always_ask", "deny_writes"]
-                    currentIndex: 0
-                }
-
-                Hairline { Layout.fillWidth: true; Layout.topMargin: 24; Layout.bottomMargin: 20 }
-
-                Text { text: "安全边界"; color: root.textPrimary; font.pixelSize: 12; font.weight: Font.Medium }
-                Text {
-                    Layout.fillWidth: true
-                    Layout.topMargin: 8
-                    text: "写入、Shell 与高风险工具会在执行前进入审批；路径始终限制在当前工作区。"
-                    color: root.textSecondary
-                    font.pixelSize: 10
-                    lineHeight: 1.45
-                    wrapMode: Text.Wrap
-                }
-                Row {
+                    Layout.fillHeight: true
                     Layout.topMargin: 14
-                    spacing: 7
-                    Rectangle { width: 7; height: 7; radius: 4; color: root.success; anchors.verticalCenter: parent.verticalCenter }
-                    Text { text: "WorkspaceGuard 已启用"; color: root.textSecondary; font.pixelSize: 10 }
+                    currentIndex: root.inspectorTab
+
+                    ScrollView {
+                        clip: true
+                        contentWidth: availableWidth
+                        ColumnLayout {
+                            width: parent.width
+                            spacing: 0
+                            Text { text: "PROVIDER"; color: root.textMuted; font.pixelSize: 9; font.letterSpacing: 0.9 }
+                            ControlSelect {
+                                id: providerSelect
+                                Layout.fillWidth: true
+                                Layout.topMargin: 7
+                                model: controller ? controller.providerOptions : []
+                                onActivated: {
+                                    modelSelect.model = controller.modelsForProvider(currentText)
+                                    modelSelect.currentIndex = 0
+                                }
+                            }
+                            Text { Layout.topMargin: 17; text: "MODEL"; color: root.textMuted; font.pixelSize: 9; font.letterSpacing: 0.9 }
+                            ControlSelect { id: modelSelect; Layout.fillWidth: true; Layout.topMargin: 7 }
+                            Text { Layout.topMargin: 17; text: "MODE"; color: root.textMuted; font.pixelSize: 9; font.letterSpacing: 0.9 }
+                            ControlSelect {
+                                id: modeSelect
+                                Layout.fillWidth: true
+                                Layout.topMargin: 7
+                                model: ["agent", "chat", "plan", "review"]
+                                currentIndex: 0
+                            }
+                            Text { Layout.topMargin: 17; text: "PERMISSIONS"; color: root.textMuted; font.pixelSize: 9; font.letterSpacing: 0.9 }
+                            ControlSelect {
+                                id: permissionSelect
+                                Layout.fillWidth: true
+                                Layout.topMargin: 7
+                                model: ["safe_auto", "always_ask", "deny_writes"]
+                                currentIndex: 0
+                            }
+
+                            Rectangle {
+                                visible: controller ? controller.hasExecutablePlan : false
+                                Layout.fillWidth: true
+                                Layout.topMargin: 20
+                                implicitHeight: planColumn.implicitHeight + 24
+                                radius: 11
+                                color: "#191A18"
+                                border.color: "#403523"
+                                ColumnLayout {
+                                    id: planColumn
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    anchors.top: parent.top
+                                    anchors.margins: 12
+                                    spacing: 8
+                                    Text { text: "已审阅计划"; color: root.accent; font.pixelSize: 10; font.weight: Font.DemiBold }
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: controller ? controller.lastPlanPreview : ""
+                                        color: root.textSecondary
+                                        font.pixelSize: 10
+                                        wrapMode: Text.Wrap
+                                        maximumLineCount: 5
+                                        elide: Text.ElideRight
+                                    }
+                                    QuietButton {
+                                        Layout.fillWidth: true
+                                        label: controller && controller.busy ? "加入执行队列" : "执行此计划"
+                                        glyph: "▶"
+                                        onClicked: controller.executeLastPlan(
+                                            providerSelect.currentText,
+                                            modelSelect.currentText,
+                                            permissionSelect.currentText
+                                        )
+                                    }
+                                }
+                            }
+
+                            Hairline { Layout.fillWidth: true; Layout.topMargin: 22; Layout.bottomMargin: 18 }
+                            Text { text: "安全边界"; color: root.textPrimary; font.pixelSize: 12; font.weight: Font.Medium }
+                            Text {
+                                Layout.fillWidth: true
+                                Layout.topMargin: 8
+                                text: "写入、Shell 与高风险工具执行前审批；路径限制在工作区。"
+                                color: root.textSecondary
+                                font.pixelSize: 10
+                                lineHeight: 1.45
+                                wrapMode: Text.Wrap
+                            }
+                            Row {
+                                Layout.topMargin: 14
+                                spacing: 7
+                                Rectangle { width: 7; height: 7; radius: 4; color: root.success; anchors.verticalCenter: parent.verticalCenter }
+                                Text { text: "WorkspaceGuard 已启用"; color: root.textSecondary; font.pixelSize: 10 }
+                            }
+                            QuietButton {
+                                Layout.fillWidth: true
+                                Layout.topMargin: 20
+                                label: "分支当前会话"
+                                glyph: "⑂"
+                                enabled: controller ? !controller.busy && controller.currentSessionId.length > 0 : false
+                                onClicked: controller.forkSession()
+                            }
+                        }
+                    }
+
+                    Item {
+                        ColumnLayout {
+                            anchors.fill: parent
+                            spacing: 8
+                            Text {
+                                Layout.fillWidth: true
+                                text: controller ? controller.contextSummary : ""
+                                color: root.textMuted
+                                font.pixelSize: 9
+                            }
+                        ListView {
+                            id: instructionList
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            clip: true
+                            spacing: 0
+                            model: controller ? controller.instructionModel : null
+                            delegate: Rectangle {
+                                required property string source
+                                required property string label
+                                required property string path
+                                required property string scope
+                                required property int tokens
+                                width: ListView.view.width
+                                height: 82
+                                color: "transparent"
+                                Column {
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    spacing: 5
+                                    Row {
+                                        spacing: 7
+                                        Rectangle { width: 6; height: 6; radius: 3; color: root.accent; anchors.verticalCenter: parent.verticalCenter }
+                                        Text { text: label; color: root.textPrimary; font.pixelSize: 11; font.weight: Font.Medium }
+                                    }
+                                    Text { width: parent.width; text: path; color: root.textSecondary; font.pixelSize: 9; elide: Text.ElideMiddle }
+                                    Text { text: scope + " · ≈" + tokens + " tokens"; color: root.textMuted; font.pixelSize: 9 }
+                                }
+                                Hairline { anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom }
+                            }
+                            footer: Text {
+                                width: parent ? parent.width : 0
+                                topPadding: 14
+                                text: instructionList.count === 0 ? "未发现项目规则文件" : "按低 → 高优先级注入上下文"
+                                color: root.textMuted
+                                font.pixelSize: 9
+                                wrapMode: Text.Wrap
+                            }
+                        }
+                        }
+                    }
+
+                    Item {
+                        ListView {
+                            id: changeList
+                            anchors.fill: parent
+                            clip: true
+                            spacing: 0
+                            model: controller ? controller.changeModel : null
+                            delegate: Rectangle {
+                                id: changeRow
+                                required property string changeId
+                                required property string path
+                                required property string summary
+                                required property string diff
+                                required property string status
+                                required property bool canRestore
+                                required property string created
+                                property bool expanded: false
+                                width: ListView.view.width
+                                height: expanded ? 278 : 88
+                                color: "transparent"
+                                ColumnLayout {
+                                    anchors.fill: parent
+                                    anchors.topMargin: 12
+                                    anchors.bottomMargin: 12
+                                    spacing: 5
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        Text { text: changeRow.summary; color: changeRow.status === "undone" ? root.textMuted : root.accent; font.pixelSize: 10; font.weight: Font.DemiBold }
+                                        Item { Layout.fillWidth: true }
+                                        Text { text: changeRow.expanded ? "⌃" : "⌄"; color: root.textMuted; font.pixelSize: 12 }
+                                    }
+                                    Text { Layout.fillWidth: true; text: changeRow.path; color: root.textPrimary; font.pixelSize: 10; elide: Text.ElideMiddle }
+                                    Rectangle {
+                                        visible: changeRow.expanded
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: 156
+                                        radius: 8
+                                        color: "#0D1114"
+                                        ScrollView {
+                                            anchors.fill: parent
+                                            anchors.margins: 9
+                                            TextArea {
+                                                text: changeRow.diff
+                                                readOnly: true
+                                                color: root.textSecondary
+                                                font.family: "Menlo"
+                                                font.pixelSize: 9
+                                                wrapMode: TextEdit.NoWrap
+                                                background: Item { }
+                                            }
+                                        }
+                                    }
+                                    QuietButton {
+                                        visible: changeRow.expanded
+                                        Layout.fillWidth: true
+                                        label: changeRow.status === "undone" ? "已撤销" : "安全撤销此变更"
+                                        glyph: "↶"
+                                        enabled: changeRow.canRestore && !(controller && controller.busy)
+                                        onClicked: controller.restoreChange(changeRow.changeId)
+                                    }
+                                }
+                                MouseArea {
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    anchors.top: parent.top
+                                    height: 78
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: changeRow.expanded = !changeRow.expanded
+                                }
+                                Hairline { anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom }
+                                Behavior on height { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                            }
+                            footer: Text {
+                                width: parent ? parent.width : 0
+                                topPadding: 14
+                                text: changeList.count === 0 ? "本会话尚无文件变更" : "撤销前会校验文件哈希，避免覆盖后续编辑"
+                                color: root.textMuted
+                                font.pixelSize: 9
+                                wrapMode: Text.Wrap
+                            }
+                        }
+                    }
                 }
 
-                Item { Layout.fillHeight: true }
                 QuietButton {
                     Layout.fillWidth: true
+                    Layout.topMargin: 10
                     label: "刷新配置"
                     glyph: "↻"
                     onClicked: {
@@ -808,8 +1065,8 @@ ApplicationWindow {
                 }
                 Text {
                     Layout.fillWidth: true
-                    Layout.topMargin: 12
-                    text: "YF-Harness 0.3 · Local first"
+                    Layout.topMargin: 10
+                    text: "YF-Harness 0.4 · Local first"
                     color: root.textMuted
                     font.pixelSize: 9
                     horizontalAlignment: Text.AlignHCenter

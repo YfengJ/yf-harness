@@ -22,6 +22,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--smoke-test", action="store_true")
     parser.add_argument("--screenshot")
+    parser.add_argument("--preview-tab", type=int, choices=range(3), default=0)
     args, qt_args = parser.parse_known_args()
     os.environ.setdefault("QT_QUICK_CONTROLS_STYLE", "Basic")
     application = QGuiApplication([sys.argv[0], *qt_args])
@@ -40,6 +41,8 @@ def main() -> None:
     engine.load(QUrl.fromLocalFile(str(root / "qml" / "Main.qml")))
     if not engine.rootObjects():
         raise SystemExit("无法加载桌面界面资源")
+    if args.screenshot:
+        engine.rootObjects()[0].setProperty("inspectorTab", args.preview_tab)
     application.aboutToQuit.connect(controller.shutdown)
 
     if args.screenshot:

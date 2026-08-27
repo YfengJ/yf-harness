@@ -25,6 +25,8 @@ def test_run_mock_json_output() -> None:
 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
+    assert payload["context"]["estimated_tokens"] > 0
+    assert payload["context"]["sources"]
     assert payload["provider"] == "mock"
     assert payload["usage"]["estimated"] is True
 

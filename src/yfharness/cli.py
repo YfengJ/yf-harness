@@ -518,6 +518,16 @@ async def _run_once(
             )
     if result.run.status is not RunStatus.COMPLETED:
         raise HarnessError(result.run.error or f"run ended with {result.run.status.value}")
+    context_payload: dict[str, object] | None = None
+    if runner.context_builder is not None and runner.context_builder.last_snapshot is not None:
+        snapshot = runner.context_builder.last_snapshot
+        context_payload = {
+            "estimated_tokens": snapshot.estimated_tokens,
+            "budget_tokens": snapshot.budget_tokens,
+            "usage_ratio": snapshot.usage_ratio,
+            "compacted": snapshot.compacted,
+            "sources": [source.model_dump(mode="json") for source in snapshot.sources],
+        }
     return {
         "session_id": session_id,
         "run_id": result.run.run_id,
@@ -527,6 +537,7 @@ async def _run_once(
         "usage": result.run.usage.model_dump(mode="json"),
         "steps": result.run.step_count,
         "tool_calls": result.run.tool_call_count,
+        "context": context_payload,
     }
 
 

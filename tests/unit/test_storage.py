@@ -62,6 +62,24 @@ async def test_session_crud_search_and_export(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_session_fork_copies_history_without_reusing_message_ids(tmp_path: Path) -> None:
+    database = Database(tmp_path / "test.sqlite3")
+    await database.initialize()
+    repository = SessionRepository(database)
+    source = await repository.create(title="Original", provider="mock", model="mock-default")
+    await repository.add_message(source.id, Message.text(MessageRole.USER, "explore option A"))
+
+    forked = await repository.fork(source.id)
+
+    source_messages = await repository.messages(source.id)
+    forked_messages = await repository.messages(forked.id)
+    assert forked.id != source.id
+    assert forked.title == "Original · 分支"
+    assert forked_messages[0].text_content == "explore option A"
+    assert forked_messages[0].id != source_messages[0].id
+
+
+@pytest.mark.asyncio
 async def test_export_redacts_likely_credentials(tmp_path: Path) -> None:
     database = Database(tmp_path / "test.sqlite3")
     await database.initialize()

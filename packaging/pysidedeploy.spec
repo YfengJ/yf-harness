@@ -25,7 +25,7 @@ plugins =
 [nuitka]
 macos.permissions =
 mode = standalone
-extra_args = --quiet --noinclude-qt-translations --include-package=yfharness --include-package-data=yfharness.desktop --macos-app-version=0.3.0 --macos-app-name=YF-Harness --macos-app-mode=gui
+extra_args = --quiet --noinclude-qt-translations --include-package=yfharness --include-package-data=yfharness.desktop --macos-app-version=0.4.0 --macos-app-name=YF-Harness --macos-app-mode=gui
 
 [buildozer]
 mode = debug

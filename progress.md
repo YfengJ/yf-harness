@@ -2,8 +2,8 @@
 
 ## 当前状态
 
-- 当前阶段：阶段 11（原生桌面 App 与视觉重构）
-- 整体状态：0.3.0 桌面版已完成本地发布门，待远端 CI
+- 当前阶段：阶段 12（现代桌面 Agent 工作台全方位升级）
+- 整体状态：0.4.0 本地实现、全量验证与 macOS App 已完成，正在推送私密 GitHub 并等待 CI
 - 初始仓库：空目录、非 Git 仓库
 - 当前风险：P1（安全边界、子进程、持久化、CLI/TUI 公共契约）
 
@@ -16,6 +16,12 @@
 - 完成阶段 0 的规划、风险、契约和验收基线。
 
 ## 当前进行
+
+- 正在把 Codex 的分层项目指令与审查、Claude Code 的计划/权限分离、Cursor 的消息队列与检查点整合为一条本地优先工作流。
+- 第一批范围锁定为统一项目规则、可解释上下文、Plan→Execute、运行中队列、变更审查与安全撤销；不扩大默认权限。
+- 已实现跨 Agent 分层规则、本地 Git 感知索引、真实 ContextSnapshot UI、FIFO 后续任务队列、Plan→Execute、会话分支、逐文件 Diff 与哈希冲突安全撤销。
+- 桌面检查器已重构为运行/上下文/变更三个标签；最终截图由 0.4.0 打包 Bundle 直接生成并完成视觉检查。
+- 0.4.0 最终本地门为 112 passed、82.77% 覆盖率、20/20 Eval；Ruff、格式、核心/桌面 mypy、wheel/sdist、App 签名和 Plist 均通过。
 
 - TUI 已转为兼容入口；PySide6 + Qt Quick/QML 成为主界面，并以官方 `pyside6-deploy` 生成 macOS `.app`。
 - 桌面 Bridge、QML 工作区、会话/模型/模式控制、取消、安全审批、图标、打包脚本和桌面文档均已完成。
@@ -116,6 +122,11 @@
 | 2026-08-24 | 阶段 11 Change Radar | P1/54，无 blocking gaps；依赖、CI、部署和运行路径均有直接验证证据 |
 | 2026-08-24 | 首轮 0.3.0 CI | minimal-install 通过；桌面 Job 暴露 Linux libEGL 缺失，核心矩阵暴露可选 Qt mypy 分层问题，已补充独立依赖与类型门 |
 | 2026-08-24 | 最终 0.3.0 CI `32747275102` | minimal-install、desktop-smoke 与 Linux/macOS/Windows × Python 3.12/3.13 全部通过 |
+| 2026-08-27 | 阶段 12 核心/桌面专项 | 规则、索引、审查、存储、队列、Plan、QML smoke 均通过，RuntimeWarning 严格模式通过 |
+| 2026-08-27 | 0.4.0 最终本地全量门 | 112 passed；82.77% 覆盖率；Ruff/format、核心 63 文件与桌面 3 文件 mypy 全部通过 |
+| 2026-08-27 | 0.4.0 Eval/构建 | 20/20 Eval；sdist/wheel 成功；wheel 已确认包含规则、索引、审查与 QML 资源 |
+| 2026-08-27 | 0.4.0 macOS App | 491 MB Bundle 生成；ad-hoc codesign、Plist 0.4.0、Bundle 可执行截图 2880×1650 全部通过 |
+| 2026-08-27 | 阶段 12 Change Radar | P1/30，无 blocking gaps；依赖、运行时、测试与文档风险均有直接验证证据 |
 
 ## 错误与修复
 

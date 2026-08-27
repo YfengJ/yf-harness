@@ -35,6 +35,13 @@ def test_instruction_priority_attachments_and_auto_file(
     (workspace / ".yfh" / "instructions.md").write_text("project-high", encoding="utf-8")
     (workspace / "README.md").write_text("real readme", encoding="utf-8")
     (workspace / "manual.txt").write_text("manual context", encoding="utf-8")
+    (workspace / "CLAUDE.md").write_text("claude-memory", encoding="utf-8")
+    (workspace / "AGENTS.md").write_text("codex-rules", encoding="utf-8")
+    (workspace / ".cursor" / "rules").mkdir(parents=True)
+    (workspace / ".cursor" / "rules" / "python.mdc").write_text(
+        "---\ndescription: Python conventions\nglobs: '*.py'\nalwaysApply: false\n---\nuse-types",
+        encoding="utf-8",
+    )
     monkeypatch.setenv("YFH_CONFIG_DIR", str(config))
     builder = ContextBuilder(workspace, lambda text: max(1, len(text) // 4))
     builder.add("manual.txt")
@@ -56,11 +63,42 @@ def test_instruction_priority_attachments_and_auto_file(
     )
     assert "manual context" in combined
     assert "real readme" in combined
+    assert "claude-memory" in combined
+    assert "codex-rules" in combined
+    assert "use-types" not in combined
     assert {source.kind for source in snapshot.sources} >= {
         "instruction",
         "attachment",
         "auto_file",
     }
+
+
+def test_nested_agents_override_and_cursor_glob_are_scoped(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    source = workspace / "src" / "feature"
+    cursor = workspace / ".cursor" / "rules"
+    source.mkdir(parents=True)
+    cursor.mkdir(parents=True)
+    (workspace / "AGENTS.md").write_text("root-agent", encoding="utf-8")
+    (source / "AGENTS.md").write_text("ignored-agent", encoding="utf-8")
+    (source / "AGENTS.override.md").write_text("nested-override", encoding="utf-8")
+    (source / "module.py").write_text("VALUE = 1", encoding="utf-8")
+    (cursor / "python.mdc").write_text(
+        "---\ndescription: Python only\nglobs: src/**/*.py\nalwaysApply: false\n---\npython-rule",
+        encoding="utf-8",
+    )
+    builder = ContextBuilder(workspace, lambda text: max(1, len(text) // 4))
+
+    documents = builder.instruction_documents(["src/feature/module.py"])
+    rendered = "\n".join(document.content for document in documents)
+
+    assert "root-agent" in rendered
+    assert "nested-override" in rendered
+    assert "ignored-agent" not in rendered
+    assert "python-rule" in rendered
+    assert [document.priority for document in documents] == sorted(
+        document.priority for document in documents
+    )
 
 
 def test_attachment_cannot_escape_workspace(tmp_path: Path) -> None:
@@ -139,3 +177,27 @@ def test_model_without_system_message_receives_combined_user_instructions(tmp_pa
 
     assert all(message.role is not MessageRole.SYSTEM for message in snapshot.messages)
     assert "[Harness instructions]" in snapshot.messages[-1].text_content
+
+
+def test_context_automatically_selects_semantically_relevant_local_file(tmp_path: Path) -> None:
+    (tmp_path / "parser.py").write_text(
+        "def validate_parser(value: str) -> bool:\n    return bool(value)\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "unrelated.py").write_text("COLOR = 'blue'\n", encoding="utf-8")
+    builder = ContextBuilder(tmp_path, lambda text: max(1, len(text) // 4))
+
+    snapshot = builder.build(
+        user_input="improve parser validation",
+        history=[],
+        mode=AgentMode.PLAN,
+        tools=[],
+        model=model(),
+        native_tools=True,
+    )
+
+    rendered = "\n".join(message.text_content for message in snapshot.messages)
+    assert "validate_parser" in rendered
+    assert any(
+        source.kind == "auto_file" and source.path == "parser.py" for source in snapshot.sources
+    )

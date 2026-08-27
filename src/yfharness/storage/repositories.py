@@ -11,7 +11,7 @@ from uuid import uuid4
 
 from yfharness.core.models import AgentRun, AgentState, Message, RunStatus, Usage
 from yfharness.storage.database import Database
-from yfharness.storage.models import SessionRecord
+from yfharness.storage.models import FileChangeRecord, SessionRecord
 
 
 def _now() -> str:
@@ -134,6 +134,23 @@ class SessionRepository:
             )
             for row in rows
         ]
+
+    async def fork(self, session_id: str, *, title: str | None = None) -> SessionRecord:
+        source = await self.get(session_id)
+        if source is None:
+            raise KeyError(f"session not found: {session_id}")
+        forked = await self.create(
+            title=title or f"{source.title} · 分支",
+            provider=source.provider,
+            model=source.model,
+            mode=source.mode,
+        )
+        for message in await self.messages(session_id):
+            await self.add_message(
+                forked.id,
+                message.model_copy(update={"id": str(uuid4())}, deep=True),
+            )
+        return forked
 
     async def export(self, session_id: str, *, format: str = "markdown") -> str:
         session = await self.get(session_id)
@@ -295,6 +312,49 @@ class FileChangeRepository:
             )
             await connection.commit()
         return record_id
+
+    async def get(self, record_id: str) -> FileChangeRecord | None:
+        async with self.database.connect() as connection:
+            row = await (
+                await connection.execute(
+                    "SELECT * FROM file_change_records WHERE id = ?",
+                    (record_id,),
+                )
+            ).fetchone()
+        return FileChangeRecord.model_validate(dict(row)) if row else None
+
+    async def list_for_session(
+        self,
+        session_id: str,
+        *,
+        limit: int = 50,
+    ) -> builtins.list[FileChangeRecord]:
+        async with self.database.connect() as connection:
+            rows = await (
+                await connection.execute(
+                    """
+                    SELECT changes.* FROM file_change_records AS changes
+                    JOIN runs ON runs.run_id = changes.run_id
+                    WHERE runs.session_id = ?
+                    ORDER BY changes.created_at DESC, changes.rowid DESC
+                    LIMIT ?
+                    """,
+                    (session_id, limit),
+                )
+            ).fetchall()
+        return [FileChangeRecord.model_validate(dict(row)) for row in rows]
+
+    async def mark_undone(self, record_id: str) -> bool:
+        async with self.database.connect() as connection:
+            cursor = await connection.execute(
+                """
+                UPDATE file_change_records SET undone_at = ?
+                WHERE id = ? AND undone_at IS NULL
+                """,
+                (_now(), record_id),
+            )
+            await connection.commit()
+            return cursor.rowcount > 0
 
 
 class TraceRepository:

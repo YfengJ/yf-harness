@@ -70,6 +70,62 @@ def test_desktop_controller_runs_and_persists_mock_task(
 
 
 @pytest.mark.desktop
+def test_desktop_queues_follow_up_and_executes_reviewed_plan(
+    qt_application: QGuiApplication,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("YFH_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("YFH_DATA_DIR", str(tmp_path / "data"))
+    controller = DesktopController()
+
+    controller.sendMessage("First task", "mock", "mock-default", "agent", "safe_auto")
+    controller.sendMessage("Queued task", "mock", "mock-default", "review", "deny_writes")
+    assert controller.queueCount == 1
+    _wait_until(lambda: not controller.busy and controller.queueCount == 0)
+
+    assert controller.messages.rowCount() == 4
+    assert _item(controller.messages, 2)["content"] == "Queued task"
+
+    controller.sendMessage("Make a plan", "mock", "mock-default", "plan", "deny_writes")
+    _wait_until(lambda: not controller.busy and controller.hasExecutablePlan)
+    previous_count = controller.messages.rowCount()
+    controller.executeLastPlan("mock", "mock-default", "safe_auto")
+    _wait_until(lambda: not controller.busy and controller.messages.rowCount() > previous_count)
+
+    execution_prompt = str(_item(controller.messages, previous_count)["content"])
+    assert "已经审阅的计划" in execution_prompt
+    assert "MockProvider" in execution_prompt
+    controller.shutdown()
+
+
+@pytest.mark.desktop
+def test_new_session_resets_runtime_context_to_project_instructions(
+    qt_application: QGuiApplication,
+) -> None:
+    controller = DesktopController()
+    controller.seedPreview()
+    controller.instructions.replace(
+        [
+            {
+                "source": "runtime",
+                "label": "Previous run",
+                "path": "old.py",
+                "scope": "runtime",
+                "tokens": 42,
+            }
+        ]
+    )
+
+    controller.newSession()
+
+    assert controller.instructions.rowCount() == 2
+    assert _item(controller.instructions, 0)["path"] == "AGENTS.md"
+    assert controller.contextSummary == "会话上下文将在下次运行时刷新"
+    controller.shutdown()
+
+
+@pytest.mark.desktop
 def test_desktop_qml_smoke_starts_without_runtime_errors(tmp_path: Path) -> None:
     environment = os.environ.copy()
     environment.update(

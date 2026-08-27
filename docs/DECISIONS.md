@@ -1,5 +1,14 @@
 # 架构决策记录
 
+## ADR-010：跨 Agent 规则融合与检查点必须可解释、冲突安全
+
+状态：接受。项目上下文兼容 `AGENTS.md`、`CLAUDE.md`、`.cursor/rules/*.mdc`、`YF_HARNESS.md` 和
+`.yfh/instructions.md`，但统一转换为显示来源/作用域/Token 的内部文档；自动相关文件使用本地词法与
+Git 信号，不引入远程索引。检查点复用工具层持久化 before/after，撤销必须验证当前哈希。
+
+替代方案：只支持某一家规则格式；拒绝，因为会锁定工作流。自动生成 embedding 并上传；拒绝，因为
+违背本地优先且增加不可解释性。无冲突检测直接恢复；拒绝，因为可能覆盖用户在 Agent 之后的编辑。
+
 ## ADR-009：桌面主界面采用 Qt Quick，TUI 保留兼容
 
 状态：接受。PySide6 + Qt Quick 提供真正独立的桌面窗口和 macOS App Bundle，Python Bridge 复用现有

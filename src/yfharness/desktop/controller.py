@@ -5,9 +5,13 @@ from __future__ import annotations
 import asyncio
 import json
 import threading
+from collections import deque
+from collections.abc import Callable, Coroutine
 from concurrent.futures import Future, ThreadPoolExecutor
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
+from uuid import uuid4
 
 from PySide6.QtCore import (
     Property,
@@ -33,12 +37,14 @@ from yfharness.core.agent_events import (
     ToolExecutionFinished,
     ToolExecutionStarted,
 )
+from yfharness.core.context import ContextBuilder
 from yfharness.core.events import TextDelta
 from yfharness.core.models import ApprovalDecision, ApprovalRequest, MessageRole
 from yfharness.core.policies import AgentMode, ApprovalPolicy
+from yfharness.core.review import ChangeReviewItem, WorkspaceReview
 from yfharness.storage.database import Database
 from yfharness.storage.models import SessionRecord
-from yfharness.storage.repositories import RunRepository, SessionRepository
+from yfharness.storage.repositories import FileChangeRepository, RunRepository, SessionRepository
 
 _INVALID_MODEL_INDEX = QModelIndex()
 
@@ -91,11 +97,29 @@ class DictListModel(QAbstractListModel):
         index = self.index(row, 0)
         self.dataChanged.emit(index, index, list(self._role_ids))
 
+    def take_first(self) -> dict[str, object] | None:
+        if not self._items:
+            return None
+        self.beginRemoveRows(QModelIndex(), 0, 0)
+        item = self._items.pop(0)
+        self.endRemoveRows()
+        return item
+
 
 class _PendingApproval:
     def __init__(self) -> None:
         self.event = threading.Event()
         self.decision = ApprovalDecision.DENY
+
+
+@dataclass(frozen=True, slots=True)
+class _QueuedRun:
+    id: str
+    prompt: str
+    provider: str
+    model: str
+    mode: AgentMode
+    permissions: ApprovalPolicy
 
 
 class DesktopController(QObject):
@@ -105,6 +129,9 @@ class DesktopController(QObject):
     statusChanged = Signal()
     currentSessionChanged = Signal()
     configurationChanged = Signal()
+    queueChanged = Signal()
+    planChanged = Signal()
+    contextChanged = Signal()
     errorOccurred = Signal(str)
     approvalRequested = Signal(str)
     agentEvent = Signal(str, object)
@@ -116,6 +143,12 @@ class DesktopController(QObject):
         self.messages = DictListModel(
             ["role", "speaker", "content", "timestamp", "isUser", "isTool", "pending"], self
         )
+        self.instructions = DictListModel(["source", "label", "path", "scope", "tokens"], self)
+        self.changes = DictListModel(
+            ["changeId", "path", "summary", "diff", "status", "canRestore", "created"],
+            self,
+        )
+        self.queue = DictListModel(["queueId", "prompt", "detail"], self)
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="yfh-desktop")
         self._busy = False
         self._status = "准备就绪"
@@ -129,6 +162,11 @@ class DesktopController(QObject):
         self._runner_loop: asyncio.AbstractEventLoop | None = None
         self._approval_lock = threading.Lock()
         self._pending_approvals: dict[str, _PendingApproval] = {}
+        self._queued_runs: deque[_QueuedRun] = deque()
+        self._queue_paused = False
+        self._last_plan = ""
+        self._context_summary = "尚未运行任务"
+        self._base_context_items: list[dict[str, object]] = []
         self.agentEvent.connect(self._handle_agent_event, Qt.ConnectionType.QueuedConnection)
         self.taskFinished.connect(self._handle_task_finished, Qt.ConnectionType.QueuedConnection)
 
@@ -140,9 +178,37 @@ class DesktopController(QObject):
     def messageModel(self) -> QObject:
         return self.messages
 
+    @Property(QObject, constant=True)
+    def instructionModel(self) -> QObject:
+        return self.instructions
+
+    @Property(QObject, constant=True)
+    def changeModel(self) -> QObject:
+        return self.changes
+
+    @Property(QObject, constant=True)
+    def queueModel(self) -> QObject:
+        return self.queue
+
     @Property(bool, notify=busyChanged)
     def busy(self) -> bool:
         return self._busy
+
+    @Property(int, notify=queueChanged)
+    def queueCount(self) -> int:
+        return len(self._queued_runs)
+
+    @Property(bool, notify=planChanged)
+    def hasExecutablePlan(self) -> bool:
+        return bool(self._last_plan)
+
+    @Property(str, notify=planChanged)
+    def lastPlanPreview(self) -> str:
+        return self._last_plan[:280]
+
+    @Property(str, notify=contextChanged)
+    def contextSummary(self) -> str:
+        return self._context_summary
 
     @Property(str, notify=statusChanged)
     def statusText(self) -> str:
@@ -184,11 +250,11 @@ class DesktopController(QObject):
 
     @Slot()
     def bootstrap(self) -> None:
-        self._submit("bootstrap", self._load_workspace())
+        self._submit("bootstrap", self._load_workspace)
 
     @Slot(str)
     def searchSessions(self, query: str) -> None:
-        self._submit("sessions", self._load_sessions(query.strip() or None))
+        self._submit("sessions", lambda: self._load_sessions(query.strip() or None))
 
     @Slot()
     def newSession(self) -> None:
@@ -197,6 +263,10 @@ class DesktopController(QObject):
         self._current_session_id = ""
         self._current_session_title = "新任务"
         self.messages.replace([])
+        self.changes.replace([])
+        self._reset_runtime_context()
+        self._last_plan = ""
+        self.planChanged.emit()
         self.currentSessionChanged.emit()
         self._set_status("等待任务")
 
@@ -204,7 +274,7 @@ class DesktopController(QObject):
     def openSession(self, session_id: str) -> None:
         if self._busy or not session_id:
             return
-        self._submit("open_session", self._load_session(session_id))
+        self._submit("open_session", lambda: self._load_session(session_id))
 
     @Slot(str, str, str, str, str)
     def sendMessage(
@@ -216,7 +286,7 @@ class DesktopController(QObject):
         permissions: str,
     ) -> None:
         prompt = prompt.strip()
-        if not prompt or self._busy:
+        if not prompt:
             return
         if provider not in self._config.providers:
             self.errorOccurred.emit(f"未知 Provider：{provider}")
@@ -230,6 +300,19 @@ class DesktopController(QObject):
         except ValueError:
             self.errorOccurred.emit("运行模式或权限策略无效")
             return
+        if self._busy:
+            self._enqueue(prompt, provider, model, selected_mode, selected_policy)
+            return
+        self._start_message(prompt, provider, model, selected_mode, selected_policy)
+
+    def _start_message(
+        self,
+        prompt: str,
+        provider: str,
+        model: str,
+        mode: AgentMode,
+        permissions: ApprovalPolicy,
+    ) -> None:
         if not self._current_session_id:
             self._current_session_title = prompt.splitlines()[0][:80]
             self.currentSessionChanged.emit()
@@ -240,13 +323,79 @@ class DesktopController(QObject):
         self._set_status("正在准备上下文")
         self._submit(
             "run",
-            self._run_agent(prompt, provider, model, selected_mode, selected_policy),
+            lambda: self._run_agent(prompt, provider, model, mode, permissions),
         )
+
+    def _enqueue(
+        self,
+        prompt: str,
+        provider: str,
+        model: str,
+        mode: AgentMode,
+        permissions: ApprovalPolicy,
+    ) -> None:
+        queued = _QueuedRun(str(uuid4()), prompt, provider, model, mode, permissions)
+        self._queued_runs.append(queued)
+        self.queue.append_item(
+            {
+                "queueId": queued.id,
+                "prompt": prompt,
+                "detail": f"{model} · {mode.value}",
+            }
+        )
+        self.queueChanged.emit()
+        self._set_status(f"运行中 · 已排队 {len(self._queued_runs)} 项")
+
+    @Slot()
+    def clearQueue(self) -> None:
+        self._queued_runs.clear()
+        self.queue.replace([])
+        self._queue_paused = False
+        self.queueChanged.emit()
+        self._set_status("队列已清空" if not self._busy else "运行中 · 队列已清空")
+
+    @Slot()
+    def resumeQueue(self) -> None:
+        if self._busy or not self._queued_runs:
+            return
+        self._queue_paused = False
+        self._start_next_queued()
+
+    @Slot(str, str, str)
+    def executeLastPlan(self, provider: str, model: str, permissions: str) -> None:
+        if not self._last_plan:
+            self.errorOccurred.emit("当前会话没有可执行计划")
+            return
+        self.sendMessage(
+            "请按照以下已经审阅的计划执行。逐步验证，不要扩大范围；遇到冲突先停止。\n\n"
+            + self._last_plan,
+            provider,
+            model,
+            AgentMode.AGENT.value,
+            permissions,
+        )
+
+    @Slot(str)
+    def restoreChange(self, record_id: str) -> None:
+        if self._busy or not record_id or not self._current_session_id:
+            return
+        self._submit(
+            "restore_change",
+            lambda: self._restore_change(record_id, self._current_session_id),
+        )
+
+    @Slot()
+    def forkSession(self) -> None:
+        if self._busy or not self._current_session_id:
+            return
+        source_id = self._current_session_id
+        self._submit("fork_session", lambda: self._fork_session(source_id))
 
     @Slot()
     def cancelRun(self) -> None:
         if not self._busy:
             return
+        self._queue_paused = True
         with self._runner_lock:
             runner = self._active_runner
             loop = self._runner_loop
@@ -314,6 +463,36 @@ class DesktopController(QObject):
                 },
             ]
         )
+        self._base_context_items = [
+            {
+                "source": "codex",
+                "label": "Codex 项目指令 · workspace",
+                "path": "AGENTS.md",
+                "scope": "workspace",
+                "tokens": 184,
+            },
+            {
+                "source": "cursor",
+                "label": "Cursor 规则 · Python conventions",
+                "path": ".cursor/rules/python.mdc",
+                "scope": "src/**/*.py",
+                "tokens": 96,
+            },
+        ]
+        self.instructions.replace(self._base_context_items)
+        self.changes.replace(
+            [
+                {
+                    "changeId": "preview-change",
+                    "path": "src/yfharness/desktop/controller.py",
+                    "summary": "修改文件",
+                    "diff": "+ queued messages\n+ conflict-safe restore",
+                    "status": "active",
+                    "canRestore": True,
+                    "created": "刚刚",
+                }
+            ]
+        )
         self.currentSessionChanged.emit()
         self._set_status("本地运行 · 安全模式")
 
@@ -322,8 +501,12 @@ class DesktopController(QObject):
         self.cancelRun()
         self._executor.shutdown(wait=False, cancel_futures=True)
 
-    def _submit(self, kind: str, coroutine: Any) -> None:
-        future = self._executor.submit(asyncio.run, coroutine)
+    def _submit(
+        self,
+        kind: str,
+        coroutine_factory: Callable[[], Coroutine[Any, Any, object]],
+    ) -> None:
+        future = self._executor.submit(lambda: asyncio.run(coroutine_factory()))
         future.add_done_callback(lambda completed: self._future_done(kind, completed))
 
     def _future_done(self, kind: str, future: Future[object]) -> None:
@@ -338,7 +521,21 @@ class DesktopController(QObject):
         await database.initialize()
         await RunRepository(database).mark_interrupted()
         sessions = await SessionRepository(database).list()
-        return {"sessions": [_session_item(item) for item in sessions]}
+        builder = ContextBuilder(self._config.workspace, lambda text: max(1, len(text) // 4))
+        instructions = builder.instruction_documents()
+        return {
+            "sessions": [_session_item(item) for item in sessions],
+            "instructions": [
+                {
+                    "source": item.source,
+                    "label": item.label,
+                    "path": item.path,
+                    "scope": item.scope,
+                    "tokens": max(1, len(item.content) // 4),
+                }
+                for item in instructions
+            ],
+        }
 
     async def _load_sessions(self, query: str | None) -> dict[str, object]:
         database = Database(database_file())
@@ -354,6 +551,43 @@ class DesktopController(QObject):
         if session is None:
             raise KeyError(f"会话不存在：{session_id}")
         messages = await repository.messages(session_id)
+        changes = await WorkspaceReview(
+            self._config.workspace,
+            FileChangeRepository(database),
+        ).list_for_session(session_id)
+        return {
+            "session": _session_item(session),
+            "messages": [
+                _message_item(message.role.value, message.text_content, pending=False)
+                for message in messages
+                if message.role is not MessageRole.SYSTEM
+            ],
+            "changes": [_change_item(item) for item in changes],
+        }
+
+    async def _load_changes(self, session_id: str) -> dict[str, object]:
+        database = Database(database_file())
+        await database.initialize()
+        items = await WorkspaceReview(
+            self._config.workspace,
+            FileChangeRepository(database),
+        ).list_for_session(session_id)
+        return {"changes": [_change_item(item) for item in items]}
+
+    async def _restore_change(self, record_id: str, session_id: str) -> dict[str, object]:
+        database = Database(database_file())
+        await database.initialize()
+        review = WorkspaceReview(self._config.workspace, FileChangeRepository(database))
+        message = await review.restore(record_id)
+        items = await review.list_for_session(session_id)
+        return {"message": message, "changes": [_change_item(item) for item in items]}
+
+    async def _fork_session(self, session_id: str) -> dict[str, object]:
+        database = Database(database_file())
+        await database.initialize()
+        repository = SessionRepository(database)
+        session = await repository.fork(session_id)
+        messages = await repository.messages(session.id)
         return {
             "session": _session_item(session),
             "messages": [
@@ -392,6 +626,7 @@ class DesktopController(QObject):
             approval_handler=self._request_approval,
             runner_sink=runner_sink,
         )
+        result["mode"] = mode.value
         return result
 
     async def _observe_event(self, event: AgentEvent) -> None:
@@ -460,6 +695,7 @@ class DesktopController(QObject):
                 self.messages.update_last(content=f"运行未完成：{message}", pending=False)
                 self._set_busy(False)
                 self._set_status("运行中断")
+                self._queue_paused = True
             self.errorOccurred.emit(message)
             self._clear_runner()
             return
@@ -469,14 +705,23 @@ class DesktopController(QObject):
             sessions = payload.get("sessions", [])
             if isinstance(sessions, list):
                 self.sessions.replace(sessions)
-            self._set_status("准备就绪")
+            instructions = payload.get("instructions", [])
+            if isinstance(instructions, list):
+                self._base_context_items = instructions
+                self.instructions.replace(self._base_context_items)
+            if not self._busy:
+                self._set_status("准备就绪")
         elif kind == "open_session":
             session = payload.get("session")
             messages = payload.get("messages")
+            changes = payload.get("changes")
             if isinstance(session, dict) and isinstance(messages, list):
                 self._current_session_id = str(session["sessionId"])
                 self._current_session_title = str(session["title"])
                 self.messages.replace(messages)
+                if isinstance(changes, list):
+                    self.changes.replace(changes)
+                self._reset_runtime_context()
                 self.currentSessionChanged.emit()
                 self._set_status("会话已载入")
         elif kind == "run":
@@ -491,13 +736,71 @@ class DesktopController(QObject):
             usage = payload.get("usage", {})
             tokens = usage.get("total_tokens", 0) if isinstance(usage, dict) else 0
             self._set_status(f"已完成 · {tokens} tokens")
+            if payload.get("mode") == AgentMode.PLAN.value and text.strip():
+                self._last_plan = text.strip()
+                self.planChanged.emit()
+            context = payload.get("context")
+            if isinstance(context, dict):
+                sources = context.get("sources", [])
+                if isinstance(sources, list):
+                    self.instructions.replace(
+                        [_context_item(item) for item in sources if isinstance(item, dict)]
+                    )
+                estimated = context.get("estimated_tokens", 0)
+                budget = context.get("budget_tokens", 0)
+                compacted = " · 已压缩" if context.get("compacted") else ""
+                self._context_summary = f"{estimated}/{budget} tokens{compacted}"
+                self.contextChanged.emit()
             self._clear_runner()
-            self._submit("sessions", self._load_sessions(None))
+            self._submit("sessions", lambda: self._load_sessions(None))
+            if self._current_session_id:
+                self._submit("changes", lambda: self._load_changes(self._current_session_id))
+            self._start_next_queued()
+        elif kind == "changes":
+            changes = payload.get("changes", [])
+            if isinstance(changes, list):
+                self.changes.replace(changes)
+        elif kind == "restore_change":
+            changes = payload.get("changes", [])
+            if isinstance(changes, list):
+                self.changes.replace(changes)
+            self._set_status(str(payload.get("message", "变更已撤销")))
+        elif kind == "fork_session":
+            session = payload.get("session")
+            messages = payload.get("messages")
+            if isinstance(session, dict) and isinstance(messages, list):
+                self._current_session_id = str(session["sessionId"])
+                self._current_session_title = str(session["title"])
+                self.messages.replace(messages)
+                self.changes.replace([])
+                self._reset_runtime_context()
+                self.currentSessionChanged.emit()
+                self._set_status("已创建会话分支")
+                self._submit("sessions", lambda: self._load_sessions(None))
+
+    def _start_next_queued(self) -> None:
+        if self._busy or self._queue_paused or not self._queued_runs:
+            return
+        queued = self._queued_runs.popleft()
+        self.queue.take_first()
+        self.queueChanged.emit()
+        self._start_message(
+            queued.prompt,
+            queued.provider,
+            queued.model,
+            queued.mode,
+            queued.permissions,
+        )
 
     def _clear_runner(self) -> None:
         with self._runner_lock:
             self._active_runner = None
             self._runner_loop = None
+
+    def _reset_runtime_context(self) -> None:
+        self.instructions.replace(self._base_context_items)
+        self._context_summary = "会话上下文将在下次运行时刷新"
+        self.contextChanged.emit()
 
     def _set_busy(self, value: bool) -> None:
         if self._busy != value:
@@ -517,6 +820,38 @@ def _session_item(session: SessionRecord) -> dict[str, object]:
         "detail": f"{session.model} · {session.mode}",
         "updated": _relative_time(session.updated_at),
     }
+
+
+def _change_item(item: ChangeReviewItem) -> dict[str, object]:
+    return {
+        "changeId": item.id,
+        "path": item.path,
+        "summary": item.summary,
+        "diff": item.diff,
+        "status": item.status,
+        "canRestore": item.can_restore,
+        "created": item.created_at,
+    }
+
+
+def _context_item(item: dict[str, object]) -> dict[str, object]:
+    return {
+        "source": str(item.get("kind", "context")),
+        "label": str(item.get("label", "上下文来源")),
+        "path": str(item.get("path") or "运行时上下文"),
+        "scope": str(item.get("scope") or item.get("kind", "runtime")),
+        "tokens": _safe_int(item.get("estimated_tokens")),
+    }
+
+
+def _safe_int(value: object) -> int:
+    if isinstance(value, bool):
+        return 0
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return 0
 
 
 def _message_item(role: str, content: str, pending: bool) -> dict[str, object]:

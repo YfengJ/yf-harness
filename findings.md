@@ -62,3 +62,13 @@
 - Qt 官方部署器对 QML 使用完整插件收集，自包含 Bundle 约 491 MB；保留完整 PySide6 是为避免 Essentials-only 部署解析缺失 QML framework。该体积是已知发布成本，不影响默认 wheel，Qt 仍只属于可选 extra。
 - 发布截图直接由构建后的 Bundle 生成，预览 workspace 使用匿名值，未包含用户名、密钥或真实会话。
 - 最终 Change Radar P1/54，无 blocking gaps；103 项全量测试、81.95% 核心覆盖率、20/20 Eval、静态检查、wheel 资源检查与真实 App 构建共同覆盖风险。
+
+## 阶段 12：Codex / Claude Code / Cursor 能力矩阵（2026-08-27）
+- Codex 官方能力的高价值部分是：按目录分层的 `AGENTS.md` 指令链、会话恢复、图片/网页上下文、专用子 Agent、代码审查、sandbox/approval 分层，以及本地与 worktree 隔离运行。YF-Harness 先吸收“可解释指令链、恢复、审查”，不默认复制无边界并行修改。
+- Claude Code 官方将项目记忆、Plan 权限模式、PreToolUse 决策钩子、独立上下文子 Agent 与可恢复会话分开建模。值得吸收的是“研究与修改隔离、工具权限显式、项目记忆可见”；Hook 只在有确定 schema、超时和拒绝优先级后再开放。
+- Cursor 官方的高价值交互是：Ask/Agent/Manual/Custom 模式、变更 Checkpoint、运行中 queued/follow-up 消息、项目 Rules、变更审查与安全 Run Modes。YF-Harness 已有四模式与审批基础，主要差距在队列、检查点/审查和规则可见性。
+- 三者共同的优势不是“更多按钮”，而是把任务目标、项目上下文、执行边界、进行中状态、变更证据和恢复路径做成一条连续工作流。
+- 三者共同需要规避的缺点：长会话上下文污染、自动执行的权限膨胀、并行修改冲突、规则注入、云端代码隐私、检查点与 Git 状态混淆、过度复杂的模式选择。
+- 第一批产品取舍：统一发现 `AGENTS.md` / `CLAUDE.md` / `.cursor/rules` / `YFHARNESS.md` 并显示来源；提供 Plan→Execute；运行中支持排队但不隐式 steer 当前工具调用；用已有原子变更记录构建审查与冲突安全撤销。
+- 实现后证据：规则链支持目录 scope 与 `AGENTS.override.md`；本地索引兼容 Git/非 Git；队列成功后串行、取消/失败暂停；会话分支生成新消息 ID；撤销拒绝 after_hash 不一致的后续编辑。
+- 三个检查器标签在 2880×1658 原始 Qt 截图中分别检查；信息层级、窄栏截断、空白节奏和交互行密度符合“主工作区优先、检查器次级”的视觉命题。

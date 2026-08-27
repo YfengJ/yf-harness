@@ -10,6 +10,7 @@ flowchart TB
   LC --> FC[Framework-native OpenAI-compatible Clients]
   UI --> AR[AgentRunner 显式状态机]
   AR --> CE[ContextBuilder / Compactor]
+  CE --> PI[InstructionResolver / ProjectIndex]
   AR --> PP[Provider Protocol]
   PP --> MP[MockProvider]
   PP --> OP[OpenAI Compatible HTTP/SSE]
@@ -19,6 +20,7 @@ flowchart TB
   AP --> WG[WorkspaceGuard]
   WG --> TS[File / Search / Patch / Shell / Git]
   AR --> RP[Repositories]
+  RP --> CR[Change Review / Conflict-safe Restore]
   RP --> DB[(SQLite)]
   AR --> OB[Logging / Trace / Usage]
   OB --> LG[(Rotating log / JSONL)]
@@ -30,6 +32,11 @@ flowchart TB
 桌面 Bridge 在单工作线程中运行独立 asyncio loop，并以 Qt queued signal 把事件送回 GUI 线程。
 它调用 CLI 已抽出的 `_run_once` 编排入口，因此桌面、CLI 与 TUI 共享 Provider、AgentRunner、审批、
 持久化和 Trace，不存在一条绕过安全边界的“图形界面捷径”。
+
+`InstructionResolver` 把 YF-Harness、Claude Code、Cursor 和 Codex 的项目规则归一化为带来源、作用域
+和优先级的文档；`ProjectIndex` 只在本机使用文件名、文本样本与 Git 状态排序相关文件。两者都只提供
+上下文，不能获得工具执行权。文件变更仍在工具边界记录 before/after 快照，桌面审查层只有在当前哈希
+等于 after_hash 时才恢复 before 内容。
 
 关键扩展点是 `Provider`、`Tool`、策略与 Repository，而不是复制 AgentRunner。新增实现应保持事件、Schema、错误和取消语义稳定。
 

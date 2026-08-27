@@ -9,9 +9,9 @@ from pathlib import Path
 
 from pydantic import Field
 
-from yfharness.config.paths import config_dir
 from yfharness.core.compaction import CompactionSummary, ConversationCompactor
 from yfharness.core.exceptions import ContextOverflowError
+from yfharness.core.instructions import InstructionDocument, InstructionResolver
 from yfharness.core.models import (
     DomainModel,
     Message,
@@ -20,6 +20,7 @@ from yfharness.core.models import (
     ToolDefinition,
 )
 from yfharness.core.policies import AgentMode
+from yfharness.core.project_index import ProjectIndex
 from yfharness.core.prompts import build_system_prompt
 from yfharness.tools.security import WorkspaceGuard, truncate_output
 
@@ -30,6 +31,8 @@ class ContextSource(DomainModel):
     kind: str
     label: str
     estimated_tokens: int = 0
+    path: str | None = None
+    scope: str | None = None
 
 
 class ContextSnapshot(DomainModel):
@@ -63,6 +66,12 @@ class ContextBuilder:
         self.previous_summary: CompactionSummary | None = None
         self.compactor = ConversationCompactor()
         self.last_snapshot: ContextSnapshot | None = None
+        self._active_sources: list[ContextSource] = []
+        self.instructions = InstructionResolver(
+            self.guard.root,
+            read_limit=read_limit,
+        )
+        self.project_index = ProjectIndex(self.guard.root)
 
     def add(self, path: str) -> str:
         resolved = self.guard.resolve(path, must_exist=True)
@@ -89,8 +98,10 @@ class ContextBuilder:
     ) -> ContextSnapshot:
         sources: list[ContextSource] = []
         system = build_system_prompt(mode, tools, native_tools=native_tools)
-        instruction_text = self._instruction_text(sources)
-        attachment_text = self._attachments_text(user_input, sources)
+        auto_paths = self._auto_relevant_paths(user_input)
+        relevant_paths = [*self.attachments, *auto_paths]
+        instruction_text = self._instruction_text(sources, relevant_paths)
+        attachment_text = self._attachments_text(sources, auto_paths)
         combined_system = system
         if instruction_text:
             combined_system += "\n\n# 项目与用户指令\n" + instruction_text
@@ -169,10 +180,15 @@ class ContextBuilder:
                     f"结构化压缩后仍需约 {estimated} Token，超过预算 {budget}"
                 )
         snapshot_sources = list(sources or [])
+        if sources is not None:
+            self._active_sources = list(sources)
+        elif self._active_sources:
+            snapshot_sources = list(self._active_sources)
         if compacted:
             snapshot_sources.append(ContextSource(kind="summary", label="automatic compaction"))
         for source in snapshot_sources:
-            source.estimated_tokens = self.estimator(source.label)
+            if source.estimated_tokens == 0:
+                source.estimated_tokens = self.estimator(source.label)
         snapshot = ContextSnapshot(
             messages=fitted,
             sources=snapshot_sources,
@@ -203,31 +219,61 @@ class ContextBuilder:
         ]
         return "\n".join(lines)
 
-    def _instruction_text(self, sources: list[ContextSource]) -> str:
-        # Low -> high priority: global, workspace root, project-local .yfh.
-        candidates = [
-            (config_dir() / "instructions.md", "global instructions (lowest)"),
-            (self.guard.root / "YF_HARNESS.md", "YF_HARNESS.md"),
-            (self.guard.root / ".yfh" / "instructions.md", ".yfh/instructions.md (highest)"),
-        ]
+    def instruction_documents(
+        self,
+        relevant_paths: list[str] | None = None,
+    ) -> list[InstructionDocument]:
+        """Return the effective instruction chain for diagnostics and desktop UI."""
+
+        return self.instructions.discover(relevant_paths or self.attachments)
+
+    def _instruction_text(
+        self,
+        sources: list[ContextSource],
+        relevant_paths: list[str],
+    ) -> str:
         sections: list[str] = []
-        for path, label in candidates:
-            if not path.is_file():
-                continue
-            text = self._read_text(path)
-            sections.append(f"## {label}\n{text}")
-            sources.append(ContextSource(kind="instruction", label=label))
+        for document in self.instruction_documents(relevant_paths):
+            sections.append(f"## {document.label}\n{document.content}")
+            sources.append(
+                ContextSource(
+                    kind="instruction",
+                    label=document.label,
+                    path=document.path,
+                    scope=document.scope,
+                    estimated_tokens=self.estimator(document.content),
+                )
+            )
         return "\n\n".join(sections)
 
-    def _attachments_text(self, user_input: str, sources: list[ContextSource]) -> str:
+    def _attachments_text(
+        self,
+        sources: list[ContextSource],
+        auto_paths: list[str],
+    ) -> str:
         combined = dict(self.attachments)
-        for relative in self._auto_relevant_paths(user_input):
+        for relative in auto_paths:
             if relative not in combined:
                 path = self.guard.resolve(relative, must_exist=True)
-                combined[relative] = self._attachment_text(path)
-                sources.append(ContextSource(kind="auto_file", label=relative))
-        for relative in self.attachments:
-            sources.append(ContextSource(kind="attachment", label=relative))
+                text = self._attachment_text(path)
+                combined[relative] = text
+                sources.append(
+                    ContextSource(
+                        kind="auto_file",
+                        label=relative,
+                        path=relative,
+                        estimated_tokens=self.estimator(text),
+                    )
+                )
+        for relative, text in self.attachments.items():
+            sources.append(
+                ContextSource(
+                    kind="attachment",
+                    label=relative,
+                    path=relative,
+                    estimated_tokens=self.estimator(text),
+                )
+            )
         return "\n\n".join(f"## {path}\n{text}" for path, text in combined.items())
 
     def _auto_relevant_paths(self, user_input: str) -> list[str]:
@@ -241,6 +287,11 @@ class ContextBuilder:
             if path.is_file():
                 selected.append(self.guard.relative(path))
             if len(selected) == 3:
+                break
+        for indexed in self.project_index.select(user_input, limit=5):
+            if indexed.path not in selected:
+                selected.append(indexed.path)
+            if len(selected) == 5:
                 break
         return selected
 

@@ -22,6 +22,10 @@ LlamaIndex 和 AutoGen 通过可选、惰性加载的适配层接入，既保留
 - 路径穿越与符号链接逃逸防护；Shell 超时、进程组终止、输出限制和环境脱敏。
 - SQLite 会话、运行、消息、模型事件、工具、审批、用量、上下文和文件变更记录。
 - PySide6 + Qt Quick 原生桌面 App：会话导航、流式对话、模型/模式设置、取消和工具审批。
+- 运行中后续任务队列、Plan→Execute 显式确认、会话分支和可恢复的长期工作流。
+- 统一发现 `AGENTS.md`、`CLAUDE.md`、Cursor Rules 与 `.yfh` 指令，并显示实际上下文来源。
+- Git 感知的本地项目索引，按路径、内容和工作区状态自动选择相关文件，全程不上传代码。
+- 逐文件 Diff 审查与持久化检查点；撤销前校验修改后哈希，拒绝覆盖后续人工编辑。
 - Textual 三栏 TUI：流式 Markdown、会话、工具折叠、审批、设置、诊断和响应式布局。
 - 项目指令、手动/自动文件上下文、Token 预算与八字段结构化压缩。
 - 轮转文本/JSONL 日志、Trace、只读 Replay 和 20 类离线 Eval。
@@ -40,7 +44,7 @@ LlamaIndex 和 AutoGen 通过可选、惰性加载的适配层接入，既保留
 Qt Quick Desktop / CLI / Textual TUI
         │
         ▼
-AgentRunner ── ContextBuilder
+AgentRunner ── ContextBuilder / ProjectIndex
    │   │
    │   ├── Provider → ModelEvent stream
    │   └── ToolExecutor → Policy → Approval → WorkspaceGuard → Tool
@@ -49,6 +53,7 @@ Repositories → SQLite        Observability → JSONL / Trace / Eval / Replay
 ```
 
 完整图和依赖方向见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)。
+规则融合、自动上下文和恢复语义见 [`docs/PROJECT_INTELLIGENCE.md`](docs/PROJECT_INTELLIGENCE.md)。
 
 ## 安装
 
