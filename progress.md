@@ -2,8 +2,8 @@
 
 ## 当前状态
 
-- 当前阶段：阶段 12（现代桌面 Agent 工作台全方位升级）
-- 整体状态：0.4.0 本地实现、全量验证与 macOS App 已完成，正在推送私密 GitHub 并等待 CI
+- 当前阶段：阶段 13（可扩展工作流与性能纵深，待进入实现）
+- 整体状态：0.4.0 已发布到私密 GitHub，最终 8 Job 跨平台 CI 全绿；全方位优化目标继续推进
 - 初始仓库：空目录、非 Git 仓库
 - 当前风险：P1（安全边界、子进程、持久化、CLI/TUI 公共契约）
 
@@ -128,6 +128,7 @@
 | 2026-08-27 | 0.4.0 macOS App | 491 MB Bundle 生成；ad-hoc codesign、Plist 0.4.0、Bundle 可执行截图 2880×1650 全部通过 |
 | 2026-08-27 | 阶段 12 Change Radar | P1/30，无 blocking gaps；依赖、运行时、测试与文档风险均有直接验证证据 |
 | 2026-08-27 | 0.4.0 首轮 CI | 6/8 Job 通过；Windows 3.12/3.13 同时发现 CRLF frontmatter 解析与测试快照换行差异，已修复并全量 112 passed |
+| 2026-08-27 | 最终 0.4.0 CI `33076762077` | minimal-install、desktop-smoke 与 Linux/macOS/Windows × Python 3.12/3.13 全部通过 |
 
 ## 错误与修复
 
