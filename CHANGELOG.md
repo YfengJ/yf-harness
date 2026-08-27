@@ -6,6 +6,28 @@
 
 - 等待社区反馈与首个补丁版本。
 
+## [0.5.0] - 2026-08-28
+
+### Added
+
+- 版本化 Workflow Profile，统一模式、审批、工具 allow/deny 和声明式 Pre/Post Hook。
+- CLI、TUI 和桌面工作台的 Workflow 选择与可见工具说明。
+- PNG/JPEG/GIF/WebP 附件，支持本地记录和显式授权的 OpenAI-compatible 图片输入。
+- 最小 MCP stdio 发现/调用层，以及 workspace 内静态插件 manifest 发现。
+
+### Changed
+
+- 自动文件上下文使用独立 Token 份额，大项目中会截断而不是挤爆整个请求。
+- 项目索引缓存文件样本，并按 mtime/大小使缓存失效。
+- macOS 部署明确排除 WebEngine/Quick3D 等未使用 Qt 模块，增加 320 MiB 体积门禁。
+
+### Security
+
+- Hook `allow` 不能覆盖 Policy 的 `ask`/`deny`，Post Hook 仅观察已发生结果。
+- 图片发送前重新校验 workspace、魔数、大小与 SHA-256；默认不上传。
+- MCP 服务必须显式启用；工具强制高风险审批，且仅传入配置的环境变量名。
+- 插件始终以 `review_required` 发现，不自动执行 MCP、Hook 或声明权限。
+
 ## [0.4.0] - 2026-08-27
 
 ### Added

@@ -6,6 +6,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from yfharness.cli import app
@@ -28,6 +29,8 @@ def test_run_mock_json_output() -> None:
     assert payload["context"]["estimated_tokens"] > 0
     assert payload["context"]["sources"]
     assert payload["provider"] == "mock"
+    assert payload["workflow"]["id"] == "balanced"
+    assert "read_file" in payload["workflow"]["visible_tools"]
     assert payload["usage"]["estimated"] is True
 
 
@@ -79,6 +82,7 @@ def test_discovery_config_and_doctor_commands(tmp_path: Path) -> None:
     providers = runner.invoke(app, ["providers", "list"], env=env)
     models = runner.invoke(app, ["models", "list"], env=env)
     tools = runner.invoke(app, ["tools", "list"], env=env)
+    workflows = runner.invoke(app, ["workflows", "list"], env=env)
     config_path = runner.invoke(app, ["config", "path"], env=env)
     config_show = runner.invoke(app, ["config", "show"], env=env)
     doctor = runner.invoke(app, ["doctor", "--no-network"], env=env)
@@ -86,9 +90,74 @@ def test_discovery_config_and_doctor_commands(tmp_path: Path) -> None:
     assert providers.exit_code == 0 and "mock" in providers.output
     assert models.exit_code == 0 and "mock-default" in models.output
     assert tools.exit_code == 0 and "read_file" in tools.output
+    assert workflows.exit_code == 0 and "* balanced" in workflows.output
+    assert "plan" in workflows.output and "guarded" in workflows.output
     assert config_path.exit_code == 0 and str(tmp_path / "config") in config_path.output
     assert config_show.exit_code == 0 and '"default_provider": "mock"' in config_show.output
     assert doctor.exit_code == 0 and "[OK] database" in doctor.output
+
+
+def test_run_uses_selected_workflow_and_rejects_unknown_name() -> None:
+    selected = runner.invoke(
+        app,
+        ["run", "--no-save", "--output", "json", "--workflow", "plan", "plan this"],
+    )
+    missing = runner.invoke(
+        app,
+        ["run", "--no-save", "--workflow", "missing", "hello"],
+    )
+
+    assert selected.exit_code == 0, selected.output
+    workflow = json.loads(selected.output)["workflow"]
+    assert workflow["id"] == "plan"
+    assert workflow["mode"] == "plan"
+    assert "write_file" not in workflow["visible_tools"]
+    assert missing.exit_code == 1
+    assert "unknown workflow" in missing.output
+
+
+def test_run_reports_local_image_without_remote_upload(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    image = tmp_path / "screen.png"
+    image.write_bytes(b"\x89PNG\r\n\x1a\nimage")
+
+    result = runner.invoke(
+        app,
+        ["run", "--no-save", "--output", "json", "--image", str(image), "inspect"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["attachments"] == [
+        {
+            "name": "screen.png",
+            "mime_type": "image/png",
+            "size_bytes": len(b"\x89PNG\r\n\x1a\nimage"),
+            "transfer": "local_only",
+        }
+    ]
+
+
+def test_mcp_list_discovers_only_explicitly_enabled_tool(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    config_dir = tmp_path / ".yfh"
+    config_dir.mkdir()
+    server = Path(__file__).parents[1] / "fixtures" / "mcp_stdio_server.py"
+    command = json.dumps([sys.executable, str(server)])
+    (config_dir / "config.toml").write_text(
+        f'[mcp_servers.fixture]\ncommand = {command}\nenabled = true\nenabled_tools = ["echo"]\n',
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(app, ["mcp", "list"])
+
+    assert result.exit_code == 0, result.output
+    assert result.output.strip() == "mcp__fixture__echo"
 
 
 def test_module_entrypoint_overrides_legacy_stdio_encoding(tmp_path: Path) -> None:

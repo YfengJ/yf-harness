@@ -72,3 +72,25 @@
 - 第一批产品取舍：统一发现 `AGENTS.md` / `CLAUDE.md` / `.cursor/rules` / `YFHARNESS.md` 并显示来源；提供 Plan→Execute；运行中支持排队但不隐式 steer 当前工具调用；用已有原子变更记录构建审查与冲突安全撤销。
 - 实现后证据：规则链支持目录 scope 与 `AGENTS.override.md`；本地索引兼容 Git/非 Git；队列成功后串行、取消/失败暂停；会话分支生成新消息 ID；撤销拒绝 after_hash 不一致的后续编辑。
 - 三个检查器标签在 2880×1658 原始 Qt 截图中分别检查；信息层级、窄栏截断、空白节奏和交互行密度符合“主工作区优先、检查器次级”的视觉命题。
+
+## 阶段 13：工作流、Hook、插件与性能基线（2026-08-28）
+- 当前 `main` 干净，0.4.0 最终 CI `33076762077` 八个 Job 全绿；Change Radar 无未提交差异时为 P3/0，但 0.5 预计触及配置、工具执行、上传边界和部署，人工风险继续按 P1。
+- Claude Code 官方 Hook 将 `PreToolUse` 放在工具参数生成后、权限处理前；决策支持 allow/deny/ask/defer，多 Hook 合并时最严格结果优先，且 Hook 的 allow 不能覆盖 deny/ask 权限规则。YF-Harness 应吸收“拒绝优先、来源可见、超时明确”，不直接开放任意 shell Hook。
+- Claude Code 官方还区分 PreToolUse、PermissionRequest 与 PostToolUse；Post 事件发生在副作用之后，不能伪装成阻止机制。YF-Harness 的 Hook 事件和结果必须保留这个时间语义。
+- Cursor 当前官方文档把 Run Modes、Rules、插件、MCP、skills、subagents、commands、hooks 作为分 scope 激活的能力；值得吸收的是 Profile 选择与能力可见性，不吸收隐藏的默认权限扩张或模式堆叠。
+- 0.5 第一实现顺序：版本化 Profile → 声明式 Hook → AgentRunner/Trace/桌面可见性 → 多模态/MCP。外部进程、HTTP 或 MCP Hook 必须等到最小本地决策引擎和审批优先级有直接测试后再开放。
+- macOS Bundle 当前约 491 MB；spec 已声明排除多个 QML 模块，但实际产物仍包含 WebEngine/Quick3D 等框架，说明需先测量部署器真实 module discovery/CLI 参数，而不能只继续增加排除字符串。
+- OpenAI 官方 Codex MCP 配置提供 server 级 `enabled_tools` / `disabled_tools`、逐工具 approval mode、启动/调用超时和 OAuth；deny list 在 allowlist 之后生效。YF-Harness 的 Profile 也应采用“先允许、再拒绝”的保守交集，而不是后层 allow 覆盖前层 deny。
+- OpenAI 官方 Codex 配置把 approval policy 与 sandbox/permission profile 分开，并允许对 MCP elicitation、规则、sandbox escalation 等提示类别做细粒度控制；这支持 YF-Harness 把“工具是否暴露”“工具能否执行”“是否需询问”建模为三个不同阶段。
+- OpenAI 官方 Responses API 的用户消息可混合 `input_text`、`input_image` 与 `input_file`；YF-Harness 多模态领域模型必须保留内容部分类型，不能把图片路径塞进纯文本后假装模型看到了图片。
+- MCP 当前官方工具规范要求工具列表确定性、名称冲突消歧、annotations 视为不可信，并建议 UI 明示暴露给模型的工具、调用状态和人工确认。远程 HTTP 授权还要求资源绑定，明确禁止 token passthrough；首版适配应优先 stdio、本地环境变量白名单和每工具审批。
+- Cursor 官方插件体系把规则、skills、agents、commands、MCP 与 hooks 组合成可分发清单；YF-Harness 可以兼容开放的 `plugin.json` 发现思路，但不能直接信任插件声明的风险级别或默认启用其 Hook/工具。
+- 当前工具暴露路径是 `AgentRunner._available_tools → ToolRegistry.definitions`，执行路径是 `ToolExecutor.execute → 参数校验 → Policy → Preview → Approval → Tool`。Profile allow/deny 必须同时作用于“暴露给模型”和“执行时再校验”，防止模型手写未暴露工具名绕过。
+- 当前 Policy 已在 mode、approval policy、风险、只读、always-approval 与 session allow 之间做决策。Hook 不能替换这层；正确组合是：任一 deny 即拒绝，任一 ask 即审批，只有基础 Policy 和 Hook 都允许时才自动执行。
+- 当前 Agent 事件已覆盖状态、模型、工具开始/结束与预算；增加 `HookEvaluated` 可让 CLI/桌面/Trace 观察决策来源。Post Hook 只能记录/提示成功或失败，不能声称撤销已发生的副作用。
+- AppConfig 使用 defaults < user < project < env < CLI 的深合并，适合新增 `workflows` 与 `default_workflow`。Profile schema 必须带 `version = 1` 且拒绝未知字段，避免未来配置被静默误读。
+- 0.5 已实现图片内容部分：默认 `local_only`，显式开启后才以 data URL 发送；扩展名、魔数、10 MiB、workspace 和发送前 SHA 复核共同约束上传边界。
+- MCP stdio 仅在配置 `enabled = true` 时启动，环境变量需显式白名单；远端工具统一进入高风险审批，服务端 annotation 不参与本地降权。插件首版只做静态 manifest 发现，始终标为 `review_required`。
+- 项目索引加入 mtime/size 样本缓存与 TTL 刷新；140 文件基准中 100 次选择由 662.51 ms 降到 513.28 ms，冷索引 9.26 ms。
+- Qt 顶层模块排除实际生效后，0.5 macOS App 从约 491 MB 降到 235 MB；320 MiB 门禁、真实 Bundle smoke、ad-hoc 签名与截图均通过。QML 数据目录名称不能等同于顶层动态库，部署审计必须区分二者。
+- 可选并行研究只接受只读上下文快照、独立会话和独立 worktree；任何写入结果仍需哈希基线检查、Diff、人工审批与测试后才能合并，不能共享隐式审批或密钥状态。

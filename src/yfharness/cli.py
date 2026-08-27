@@ -19,22 +19,28 @@ from yfharness.config.paths import config_file, database_file
 from yfharness.core.agent import AgentLimits, AgentRunner
 from yfharness.core.agent_events import (
     AgentEvent,
+    HookEvaluated,
     ModelEventObserved,
     ToolExecutionFinished,
     ToolExecutionStarted,
 )
+from yfharness.core.attachments import prepare_image
 from yfharness.core.context import ContextBuilder
 from yfharness.core.events import TextDelta
 from yfharness.core.exceptions import HarnessError
 from yfharness.core.models import (
     ApprovalDecision,
     ApprovalRequest,
+    ContentPart,
     HealthStatus,
     MessageRole,
     RunStatus,
 )
+from yfharness.core.plugins import discover_plugins
 from yfharness.core.policies import AgentMode, ApprovalPolicy
+from yfharness.core.workflows import HookEvaluation
 from yfharness.diagnostics import run_doctor
+from yfharness.integrations.mcp import register_mcp_tools
 from yfharness.observability import TraceContext, get_logger, trace_scope
 from yfharness.providers.registry import builtin_registry, provider_from_config
 from yfharness.storage.database import Database
@@ -47,7 +53,7 @@ from yfharness.storage.repositories import (
 )
 from yfharness.tools.base import ToolContext
 from yfharness.tools.changes import ChangeEntry, ChangeJournal
-from yfharness.tools.registry import ToolExecutor, builtin_tools
+from yfharness.tools.registry import ToolExecutor, ToolRegistry, builtin_tools
 from yfharness.tools.security import WorkspaceGuard
 
 app = typer.Typer(
@@ -60,12 +66,18 @@ config_app = typer.Typer(help="查看配置。")
 sessions_app = typer.Typer(help="管理已保存会话。")
 models_app = typer.Typer(help="查看模型配置。")
 tools_app = typer.Typer(help="查看可用工具。")
+workflows_app = typer.Typer(help="查看可用工作流配置。")
+mcp_app = typer.Typer(help="发现显式启用的 MCP stdio 工具。")
+plugins_app = typer.Typer(help="静态发现项目插件声明，不自动激活。")
 frameworks_app = typer.Typer(help="发现、诊断和运行可选 Agent 框架。")
 app.add_typer(providers_app, name="providers")
 app.add_typer(config_app, name="config")
 app.add_typer(sessions_app, name="sessions")
 app.add_typer(models_app, name="models")
 app.add_typer(tools_app, name="tools")
+app.add_typer(workflows_app, name="workflows")
+app.add_typer(mcp_app, name="mcp")
+app.add_typer(plugins_app, name="plugins")
 app.add_typer(frameworks_app, name="frameworks")
 
 
@@ -98,10 +110,22 @@ def run(
     timeout: Annotated[float, typer.Option("--timeout", min=0.1, help="运行超时秒数。")] = 120.0,
     session: Annotated[str | None, typer.Option("--session", help="继续已有会话 ID。")] = None,
     save: Annotated[bool, typer.Option("--save/--no-save", help="是否保存会话和运行记录。")] = True,
-    mode: Annotated[AgentMode, typer.Option("--mode", help="运行模式。")] = AgentMode.AGENT,
+    workflow: Annotated[str | None, typer.Option("--workflow", help="工作流配置名称。")] = None,
+    image: Annotated[
+        list[Path] | None,
+        typer.Option("--image", exists=True, dir_okay=False, help="附加图片(可重复)。"),
+    ] = None,
+    send_images: Annotated[
+        bool,
+        typer.Option(
+            "--send-images/--local-images",
+            help="明确授权将图片内容发送给所选模型。",
+        ),
+    ] = False,
+    mode: Annotated[AgentMode | None, typer.Option("--mode", help="覆盖工作流的运行模式。")] = None,
     permissions: Annotated[
-        ApprovalPolicy, typer.Option("--permissions", help="工具审批策略。")
-    ] = ApprovalPolicy.SAFE_AUTO,
+        ApprovalPolicy | None, typer.Option("--permissions", help="覆盖工作流的工具审批策略。")
+    ] = None,
 ) -> None:
     """运行一个无界面、可自动化的模型请求。"""
 
@@ -136,6 +160,9 @@ def run(
                 save=save,
                 mode=mode,
                 permissions=permissions,
+                workflow_name=workflow,
+                image_paths=image,
+                send_images=send_images,
             )
         )
     except (HarnessError, TimeoutError, ValueError, KeyError, OSError, sqlite3.Error) as exc:
@@ -289,13 +316,20 @@ async def _run_once(
     stream: bool,
     session_id: str | None = None,
     save: bool = True,
-    mode: AgentMode = AgentMode.AGENT,
-    permissions: ApprovalPolicy = ApprovalPolicy.SAFE_AUTO,
+    mode: AgentMode | None = None,
+    permissions: ApprovalPolicy | None = None,
+    workflow_name: str | None = None,
+    image_paths: list[Path] | None = None,
+    send_images: bool = False,
+    attachment_parts: list[ContentPart] | None = None,
     event_sink: Callable[[AgentEvent], Awaitable[None]] | None = None,
     approval_handler: Callable[[ApprovalRequest], Awaitable[ApprovalDecision]] | None = None,
     runner_sink: Callable[[AgentRunner], None] | None = None,
 ) -> dict[str, object]:
     config = load_config()
+    workflow = config.workflow(workflow_name)
+    mode = mode or workflow.mode
+    permissions = permissions or workflow.permissions
     provider = provider_from_config(config, provider_name)
     try:
         model_config = config.models[model_name]
@@ -324,6 +358,7 @@ async def _run_once(
                 title=prompt.strip().splitlines()[0][:80],
                 provider=provider_name,
                 model=model_name,
+                mode=mode.value,
             )
             session_id = session_record.id
         else:
@@ -339,6 +374,12 @@ async def _run_once(
 
     guard = WorkspaceGuard(config.workspace)
     changes = ChangeJournal(guard)
+    tool_registry = builtin_tools()
+    mcp_tools = await register_mcp_tools(tool_registry, config, guard.root)
+    attachments = list(attachment_parts or [])
+    attachments.extend(
+        prepare_image(path, guard, send_to_model=send_images) for path in image_paths or []
+    )
 
     async def record_change(entry: ChangeEntry) -> None:
         if change_repo is None or run_record is None:
@@ -391,6 +432,9 @@ async def _run_once(
         if model_config.supports_native_tools and isinstance(event.event, TextDelta):
             typer.echo(event.event.text, nl=False)
 
+    async def observe_hook(evaluation: HookEvaluation) -> None:
+        await observe(HookEvaluated(evaluation=evaluation))
+
     tool_context = ToolContext(
         workspace=guard.root,
         guard=guard,
@@ -399,11 +443,13 @@ async def _run_once(
         change_recorder=record_change,
     )
     tool_executor = ToolExecutor(
-        builtin_tools(),
+        tool_registry,
         tool_context,
         mode=mode,
         policy=permissions,
         approval_handler=approve,
+        workflow=workflow,
+        hook_sink=observe_hook,
     )
     agent_limits = AgentLimits(
         max_steps=config.agent.max_steps,
@@ -436,6 +482,7 @@ async def _run_once(
             session_id=session_id,
             history=history,
             existing_run=run_record,
+            attachments=attachments,
         )
         logger.info(
             "agent run finished",
@@ -471,7 +518,20 @@ async def _run_once(
             run_id=run_record.run_id,
             provider=provider_name,
             model=model_name,
-            request={"task": prompt, "mode": mode.value},
+            request={
+                "task": prompt,
+                "mode": mode.value,
+                "workflow": workflow.id,
+                "attachments": [
+                    {
+                        "name": Path(part.path or "").name,
+                        "mime_type": part.mime_type,
+                        "size_bytes": part.size_bytes,
+                        "transfer": part.transfer.value,
+                    }
+                    for part in attachments
+                ],
+            },
             events=[event.model_dump(mode="json") for event in observed_events],
             duration=duration,
             error_type=None
@@ -488,7 +548,7 @@ async def _run_once(
             for event in observed_events
             if isinstance(event, ToolExecutionFinished)
         }
-        definitions = {item.name: item for item in builtin_tools().definitions()}
+        definitions = {item.name: item for item in tool_registry.definitions()}
         for call_id, call in started_calls.items():
             tool_result = finished_calls.get(call_id)
             await trace_repo.record_tool_call(
@@ -533,11 +593,29 @@ async def _run_once(
         "run_id": result.run.run_id,
         "provider": provider_name,
         "model": model_name,
+        "workflow": {
+            "id": workflow.id,
+            "label": workflow.label,
+            "mode": mode.value,
+            "permissions": permissions.value,
+            "visible_tools": [item.name for item in tool_executor.definitions()],
+            "hook_count": len(workflow.hooks),
+        },
         "text": result.final_text,
         "usage": result.run.usage.model_dump(mode="json"),
         "steps": result.run.step_count,
         "tool_calls": result.run.tool_call_count,
         "context": context_payload,
+        "attachments": [
+            {
+                "name": Path(part.path or "").name,
+                "mime_type": part.mime_type,
+                "size_bytes": part.size_bytes,
+                "transfer": part.transfer.value,
+            }
+            for part in attachments
+        ],
+        "mcp_tools": mcp_tools,
     }
 
 
@@ -568,6 +646,58 @@ def tools_list() -> None:
         typer.echo(
             f"{definition.name}\t{definition.risk_level.value}\t"
             f"{'read-only' if definition.read_only else 'write/execute'}"
+        )
+
+
+@workflows_app.command("list")
+def workflows_list() -> None:
+    """列出版本化工作流、默认策略和可见工具数。"""
+
+    config = load_config()
+    definitions = builtin_tools().definitions()
+    for name, workflow in sorted(config.workflows.items()):
+        marker = "*" if name == config.default_workflow else " "
+        typer.echo(
+            f"{marker} {name}\t{workflow.mode.value}\t{workflow.permissions.value}\t"
+            f"{len(workflow.filter_definitions(definitions))} tools\t"
+            f"{len(workflow.hooks)} hooks\t{workflow.label}"
+        )
+
+
+@mcp_app.command("list")
+def mcp_list() -> None:
+    """启动已显式启用的 stdio 服务，列出经本地命名隔离后的工具。"""
+
+    async def discover() -> list[str]:
+        config = load_config()
+        registry = ToolRegistry()
+        return await register_mcp_tools(registry, config, config.workspace)
+
+    try:
+        names = asyncio.run(discover())
+    except (HarnessError, OSError, ValueError) as exc:
+        typer.echo(f"错误：{exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    if not names:
+        typer.echo("没有已启用的 MCP 工具。")
+        return
+    for name in names:
+        typer.echo(name)
+
+
+@plugins_app.command("list")
+def plugins_list() -> None:
+    """列出 workspace `.yfh/plugins/*/plugin.json` 及其待审查权限。"""
+
+    plugins = discover_plugins(load_config().workspace)
+    if not plugins:
+        typer.echo("没有发现项目插件。")
+        return
+    for item in plugins:
+        permissions = ",".join(item.manifest.requested_permissions) or "none"
+        typer.echo(
+            f"{item.manifest.id}\t{item.manifest.version}\t{item.status}\t"
+            f"permissions={permissions}\t{item.manifest_path}"
         )
 
 

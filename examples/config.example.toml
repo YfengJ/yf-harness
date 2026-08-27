@@ -16,6 +16,7 @@ supports_streaming = true
 supports_native_tools = true
 supports_reasoning = false
 supports_system_message = true
+supports_image_input = false
 context_window = 64000
 max_output_tokens = 4096
 
@@ -25,3 +26,32 @@ base_url = "http://127.0.0.1:11434/v1"
 api_key_env = ""
 
 # Pricing and context limits are user configuration, never permanent program facts.
+
+default_workflow = "balanced"
+
+[workflows.review_only]
+version = 1
+id = "review_only"
+label = "只读审查"
+description = "只暴露 Git 和读取工具。"
+mode = "review"
+permissions = "deny_writes"
+allowed_tools = ["read_file", "search_text", "find_files", "git_*"]
+denied_tools = []
+
+[[workflows.review_only.hooks]]
+id = "observe-git"
+event = "post_tool_use"
+tools = ["git_*"]
+action = "observe"
+message = "Git 审查工具已完成。"
+
+# 仅 enabled=true 才会启动 stdio 进程做工具发现；实际调用仍强制审批。
+[mcp_servers.local_example]
+command = ["python", "path/to/server.py"]
+enabled = false
+enabled_tools = ["search"]
+disabled_tools = []
+env_keys = []
+startup_timeout = 10
+tool_timeout = 60

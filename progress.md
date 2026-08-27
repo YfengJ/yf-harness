@@ -2,8 +2,8 @@
 
 ## 当前状态
 
-- 当前阶段：阶段 13（可扩展工作流与性能纵深，待进入实现）
-- 整体状态：0.4.0 已发布到私密 GitHub，最终 8 Job 跨平台 CI 全绿；全方位优化目标继续推进
+- 当前阶段：阶段 13（可扩展工作流与性能纵深，本地完成）
+- 整体状态：0.5.0 已完成本地发布门与 macOS App 验证，正在推送私密 GitHub 并等待 CI
 - 初始仓库：空目录、非 Git 仓库
 - 当前风险：P1（安全边界、子进程、持久化、CLI/TUI 公共契约）
 
@@ -17,6 +17,10 @@
 
 ## 当前进行
 
+- 阶段 13 本地实现已完成：版本化 Workflow/Profile、声明式 Hook、多模态图片、MCP stdio、插件静态发现、索引缓存与 Bundle 瘦身均已落地。
+- 0.5 初始仓库为干净 `main`；规划技能的 Codex session catchup 解析暂不支持，但 `task_plan.md`、`progress.md`、`findings.md` 已直接恢复。
+- 已实现 Profile/Hook 领域模型：schema `version = 1`、安全工具 glob、allow 后 deny、Hook 最严格决策合并、Post Hook 只观察；8 项配置/工作流专项测试通过。
+- Profile 已接入 ToolExecutor/AgentRunner/Trace，并在 CLI、TUI 与桌面 App 中统一生效；桌面检查器新增 Workflow 选择和模式/权限联动。
 - 正在把 Codex 的分层项目指令与审查、Claude Code 的计划/权限分离、Cursor 的消息队列与检查点整合为一条本地优先工作流。
 - 第一批范围锁定为统一项目规则、可解释上下文、Plan→Execute、运行中队列、变更审查与安全撤销；不扩大默认权限。
 - 已实现跨 Agent 分层规则、本地 Git 感知索引、真实 ContextSnapshot UI、FIFO 后续任务队列、Plan→Execute、会话分支、逐文件 Diff 与哈希冲突安全撤销。
@@ -25,7 +29,7 @@
 
 - TUI 已转为兼容入口；PySide6 + Qt Quick/QML 成为主界面，并以官方 `pyside6-deploy` 生成 macOS `.app`。
 - 桌面 Bridge、QML 工作区、会话/模型/模式控制、取消、安全审批、图标、打包脚本和桌面文档均已完成。
-- 本机 `dist/YF-Harness.app` 已完成 ad-hoc 签名、Plist 校验、LaunchServices smoke 和真实 Bundle 截图；待推送私密 GitHub 并等待 CI。
+- 本机 0.5.0 `dist/YF-Harness.app` 已从约 491 MB 降到 235 MB，并完成 ad-hoc 签名、Plist、LaunchServices smoke 和真实 Bundle 截图；待推送私密 GitHub 并等待 CI。
 
 - 正在将 LangChain、LlamaIndex、AutoGen 作为可选真实集成层加入项目；先依据官方 API 锁定适配契约。
 - 约束：默认安装继续轻量；第三方框架不能绕过 YF-Harness 的 Provider 密钥规则和工具安全边界。
@@ -129,6 +133,12 @@
 | 2026-08-27 | 阶段 12 Change Radar | P1/30，无 blocking gaps；依赖、运行时、测试与文档风险均有直接验证证据 |
 | 2026-08-27 | 0.4.0 首轮 CI | 6/8 Job 通过；Windows 3.12/3.13 同时发现 CRLF frontmatter 解析与测试快照换行差异，已修复并全量 112 passed |
 | 2026-08-27 | 最终 0.4.0 CI `33076762077` | minimal-install、desktop-smoke 与 Linux/macOS/Windows × Python 3.12/3.13 全部通过 |
+| 2026-08-28 | 0.5 Profile/Hook 专项 | Ruff/mypy 通过；CLI/TUI/桌面与工具链相关 47 passed |
+| 2026-08-28 | Workflow CLI/QML smoke | `plan` 仅暴露 8 个只读工具；无头 Qt App 成功加载且无 QML 错误 |
+| 2026-08-28 | 0.5.0 本地发布门 | 138 passed、83.15% 覆盖率；Ruff/format、67 个源码文件 mypy、20/20 Eval、sdist/wheel 全部通过 |
+| 2026-08-28 | 0.5.0 Change Radar | P1/50，无 blocking gaps；配置、依赖、上传与工具执行风险均有直接验证证据 |
+| 2026-08-28 | 0.5.0 macOS App | 235 MB Bundle；无 QtWebEngine 等顶层重型模块；ad-hoc codesign、Plist 0.5.0、LaunchServices smoke 与真实截图通过 |
+| 2026-08-28 | 项目索引性能 | 140 文件、100 次选择由 662.51 ms 降至 513.28 ms；冷索引 9.26 ms |
 
 ## 错误与修复
 
@@ -147,5 +157,8 @@
 - 系统 pip 在全新 venv 下载依赖时遇到本机 SSL CA 验证失败；uv 使用自己的受信传输在另一全新 venv 成功解析、安装同一 wheel 并运行，确认产物和依赖元数据有效。
 - 最终全量复跑偶发 Textual Worker 退出上下文警告；集成测试改为等待完整 Worker（含 Trace 和会话刷新）结束，专项连续 5 次及全量严格警告模式均无告警。
 - Windows 3.13 首次桌面版 CI 在 TUI 新会话 Worker 完成前执行断言；测试改为等待 Worker 契约，最终八个 CI Job 全绿。
+- 当前 macOS 环境没有 GNU `timeout`；桌面 smoke 改为 PTY 启动、确认 Qt/QML 无报错后发送 Ctrl+C 正常退出。
+- 桌面构建首次提示下载 ccache：拒绝下载并在 spec 禁用 ccache，后续构建保持非交互。
+- Bundle 门禁首次递归匹配到 `QtQuick3D` QML 数据目录：审计改为只检查顶层动态库，确认重型模块实际未打入 235 MB 产物。
 
 > 只有实际执行过的命令才会进入本表；后续每阶段完成后同步更新。

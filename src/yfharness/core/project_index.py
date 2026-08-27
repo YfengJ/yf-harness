@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import subprocess
+import time
 from pathlib import Path
 
 from yfharness.core.models import DomainModel
@@ -60,8 +61,11 @@ class ProjectIndex:
         self.sample_bytes = sample_bytes
         self._paths: list[str] | None = None
         self._changed: set[str] | None = None
+        self._samples: dict[str, tuple[int, int, str | None]] = {}
+        self._refreshed_at = 0.0
 
     def select(self, query: str, *, limit: int = 5) -> list[IndexedPath]:
+        self._refresh_if_stale()
         terms = _query_terms(query)
         if not terms:
             return []
@@ -70,9 +74,13 @@ class ProjectIndex:
         for relative in self.paths():
             path_score, reasons = _path_score(relative, terms)
             content_score = 0.0
-            path = self.guard.resolve(relative, must_exist=True)
-            if path.stat().st_size <= 1_000_000:
-                text = _sample_text(path, self.sample_bytes)
+            try:
+                path = self.guard.resolve(relative, must_exist=True)
+                size = path.stat().st_size
+            except OSError:
+                continue
+            if size <= 1_000_000:
+                text = self._sample(relative, path)
                 if text is not None:
                     lowered = text.lower()
                     hits = sum(min(lowered.count(term), 4) for term in terms)
@@ -87,6 +95,24 @@ class ProjectIndex:
                 ranked.append(IndexedPath(path=relative, score=score, reasons=reasons))
         ranked.sort(key=lambda item: (-item.score, item.path))
         return ranked[:limit]
+
+    def _refresh_if_stale(self) -> None:
+        now = time.monotonic()
+        if now - self._refreshed_at < 1.0:
+            return
+        self._paths = None
+        self._changed = None
+        self._refreshed_at = now
+
+    def _sample(self, relative: str, path: Path) -> str | None:
+        stat = path.stat()
+        cached = self._samples.get(relative)
+        signature = (stat.st_mtime_ns, stat.st_size)
+        if cached is not None and cached[:2] == signature:
+            return cached[2]
+        text = _sample_text(path, self.sample_bytes)
+        self._samples[relative] = (*signature, text)
+        return text
 
     def paths(self) -> list[str]:
         if self._paths is None:
@@ -162,6 +188,8 @@ def _query_terms(query: str) -> list[str]:
         "fix",
         "please",
         "project",
+        "task",
+        "tasks",
         "the",
         "this",
         "update",

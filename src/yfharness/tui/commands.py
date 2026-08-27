@@ -14,6 +14,7 @@ COMMANDS: dict[str, str] = {
     "model": "查看或切换模型",
     "provider": "查看或切换 Provider",
     "mode": "查看或切换模式",
+    "workflow": "查看或切换工作流配置",
     "tools": "列出可用工具",
     "permissions": "查看或切换审批策略",
     "context": "显示上下文组成",

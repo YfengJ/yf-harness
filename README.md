@@ -18,10 +18,12 @@ LlamaIndex 和 AutoGen 通过可选、惰性加载的适配层接入，既保留
 - MockProvider：无网络、无 API Key，支持流式文本、脚本化工具调用和故障模拟。
 - OpenAICompatibleProvider：可配置 `base_url`、模型、超时、有限重试和 SSE/JSON 响应。
 - Chat / Plan / Agent / Review 四模式共享同一状态机。
+- Balanced / Plan / Guarded 版本化 Workflow，可组合模式、审批、工具可见性与声明式 Hook。
 - 15 个真实工具；Pydantic 参数校验、审批策略、Diff 预览、原子写入和 `/undo`。
 - 路径穿越与符号链接逃逸防护；Shell 超时、进程组终止、输出限制和环境脱敏。
 - SQLite 会话、运行、消息、模型事件、工具、审批、用量、上下文和文件变更记录。
 - PySide6 + Qt Quick 原生桌面 App：会话导航、流式对话、模型/模式设置、取消和工具审批。
+- 图片附件默认仅本地；只有显式打开发送开关后才进入远程模型请求。
 - 运行中后续任务队列、Plan→Execute 显式确认、会话分支和可恢复的长期工作流。
 - 统一发现 `AGENTS.md`、`CLAUDE.md`、Cursor Rules 与 `.yfh` 指令，并显示实际上下文来源。
 - Git 感知的本地项目索引，按路径、内容和工作区状态自动选择相关文件，全程不上传代码。
@@ -30,6 +32,7 @@ LlamaIndex 和 AutoGen 通过可选、惰性加载的适配层接入，既保留
 - 项目指令、手动/自动文件上下文、Token 预算与八字段结构化压缩。
 - 轮转文本/JSONL 日志、Trace、只读 Replay 和 20 类离线 Eval。
 - LangChain、LlamaIndex、AutoGen 真实 Agent API 集成；支持离线 Mock 和现有 OpenAI-compatible 配置。
+- MCP stdio 工具使用名称隔离、环境白名单和现有审批链；项目插件只静态发现。
 
 ## 截图
 
@@ -172,12 +175,20 @@ yfh sessions export <session_id> --format json
 yfh providers list
 yfh models list
 yfh tools list
+yfh workflows list
+yfh mcp list
+yfh plugins list
 yfh doctor --no-network
 yfh eval
 yfh replay <run_id>              # 默认只读，不执行工具
 yfh config show
 yfh config path
 ```
+
+图片在 CLI 中同样默认不上传：`yfh run --image screen.png "检查这张图"`。
+只有加上 `--send-images` 才会把验证后的图片内容发送给声明
+`supports_image_input = true` 的兼容模型。Workflow、MCP 和插件契约见
+[`docs/WORKFLOWS_MCP.md`](docs/WORKFLOWS_MCP.md)。
 
 ## 高级 Agent 框架
 

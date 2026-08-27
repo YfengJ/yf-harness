@@ -103,12 +103,21 @@
 - **状态：** complete
 
 ### 阶段 13：可扩展工作流与性能纵深
-- [ ] 设计版本化工作流 Profile、工具 allowlist 与 Pre/Post hooks 契约
-- [ ] 增加多模态附件入口，保持本地预览与明确上传边界
-- [ ] 设计 MCP/插件能力发现与权限协商，不绕过现有审批链
-- [ ] 为可选隔离研究/并行任务定义上下文、工作区和合并边界
-- [ ] 对 491 MB macOS Bundle 与项目索引做体积、启动和增量性能剖析
-- **状态：** pending
+- [x] 设计版本化工作流 Profile、工具 allowlist 与 Pre/Post hooks 契约
+- [x] 将 Profile/Hook 接入 AgentRunner、CLI、Trace、TUI 和桌面工作台
+- [x] 增加多模态附件入口，保持本地预览与明确上传边界
+- [x] 设计 MCP/插件能力发现与权限协商，不绕过现有审批链
+- [x] 为可选隔离研究/并行任务定义上下文、工作区和合并边界
+- [x] 对 491 MB macOS Bundle 与项目索引做体积、启动和增量性能剖析
+- **状态：** complete
+
+### 阶段 13 变更简报
+- **用户可见目标：** 用少量可解释的工作流 Profile 组合模式、权限、工具暴露和 Hook，让不同任务可以安全复用，而不是每次手工拼装所有开关。
+- **预期影响面：** 配置 schema/优先级、AgentRunner 工具定义、ToolExecutor 执行门、Agent 事件/Trace、CLI、桌面 Controller/QML、测试和文档。
+- **必须保留：** mode/Policy/WorkspaceGuard 的拒绝永远不能被 Hook allow 覆盖；未选择 Profile 时保持 0.4 行为；旧配置继续可读；Post Hook 不得伪装成执行前阻止。
+- **需验证假设：** glob 在三平台一致；Profile allow/deny 同时过滤模型可见定义和执行；配置深合并不会意外继承被删除的数组；Hook 事件序列可持久化且不泄露参数中的密钥。
+- **明确不做：** 第一批不运行任意 shell/HTTP Hook、不自动启用第三方插件、不把 MCP annotations 当可信风险声明、不以新增模式数量代替清晰工作流。
+- **人工风险：P1。** 新差异会跨配置、工具执行和 UI 公共契约，验证包含负向权限测试、CLI/桌面集成、全量矩阵与构建。
 
 ## 变更简报
 - **用户可见目标：** `yfh` 在无 API Key 时以 MockProvider 完整运行，有配置时连接 OpenAI 兼容服务，并通过 TUI/CLI 安全执行 Agent 工作流。
@@ -183,6 +192,12 @@
 | 0.4 全量发布门有四个文件不符合 Ruff formatter 输出 | 1 | 对精确文件运行项目格式器后重新执行全部静态、类型与覆盖率门 |
 | 桌面 mypy 首次把目录作为参数时因项目 exclude 规则未发现文件 | 1 | 改为显式列出三个桌面 Python 源文件，保持可选 GUI 与核心门禁分层 |
 | 0.4 首轮 Windows CI 的 Cursor frontmatter 与审查快照测试受 CRLF 文本转换影响 | 1 | 解析器先归一化 frontmatter 换行；字节级冲突测试改用 `write_bytes`，不放宽生产哈希比较 |
+| 0.5 工具执行接线首轮 Ruff 报一个类型名 import 次序 | 1 | 使用项目 Ruff 精确整理该 import block 后重跑静态与专项测试 |
+| 0.5 CLI 组合补丁因预期的重复 `context` 行与实际文件不一致而原子拒绝 | 1 | 确认无部分写入，按 import/命令签名/运行接线/输出分成小补丁 |
+| `uv sync --extra dev --extra desktop` 移除了框架可选依赖，导致全目录 mypy 报缺包 | 1 | 使用锁文件恢复 `dev + desktop + frameworks` extras，随后 67 个源码文件类型检查通过 |
+| Nuitka 首次构建询问是否下载 ccache | 1 | 拒绝下载，并在部署参数加入 `--disable-cache=ccache`，保证后续构建非交互 |
+| Bundle 体积审计把递归 QML 数据目录误判为顶层 Qt 动态库 | 1 | 将禁用模块审计限制到 `Contents/MacOS` 顶层；实际重型二进制未进入产物 |
+| macOS 环境没有 GNU `timeout` | 1 | 用 PTY 启动无头 Qt，确认 QML 加载后发送 Ctrl+C 回收 |
 
 ## 备注
 - `PLAN.md` 是面向项目用户的阶段与验收计划；本文件是技能要求的持续工作记忆。

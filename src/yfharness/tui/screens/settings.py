@@ -17,6 +17,7 @@ from yfharness.core.policies import AgentMode, ApprovalPolicy
 class SettingsSelection:
     provider: str
     model: str
+    workflow: str
     mode: AgentMode
     policy: ApprovalPolicy
 
@@ -30,12 +31,13 @@ class SettingsScreen(ModalScreen[SettingsSelection | None]):
         *,
         provider: str,
         model: str,
+        workflow: str,
         mode: AgentMode,
         policy: ApprovalPolicy,
     ) -> None:
         super().__init__()
         self.config = config
-        self.current = SettingsSelection(provider, model, mode, policy)
+        self.current = SettingsSelection(provider, model, workflow, mode, policy)
 
     def compose(self) -> ComposeResult:
         with Vertical(id="modal-card"):
@@ -50,6 +52,12 @@ class SettingsScreen(ModalScreen[SettingsSelection | None]):
                 [(name, name) for name in sorted(self.config.models)],
                 value=self.current.model,
                 id="model-select",
+            )
+            yield Label("工作流")
+            yield Select(
+                [(name, name) for name in sorted(self.config.workflows)],
+                value=self.current.workflow,
+                id="workflow-select",
             )
             yield Label("模式")
             yield Select(
@@ -81,6 +89,7 @@ class SettingsScreen(ModalScreen[SettingsSelection | None]):
             SettingsSelection(
                 provider=provider,
                 model=model,
+                workflow=str(self.query_one("#workflow-select", Select).value),
                 mode=AgentMode(str(self.query_one("#mode-select", Select).value)),
                 policy=ApprovalPolicy(str(self.query_one("#policy-select", Select).value)),
             )

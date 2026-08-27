@@ -53,3 +53,14 @@ def test_project_index_falls_back_outside_git_and_skips_build_outputs(tmp_path: 
     selected = ProjectIndex(tmp_path).select("router registry")
 
     assert [item.path for item in selected] == ["src/router.py"]
+
+
+def test_project_index_reuses_samples_but_invalidates_changed_file(tmp_path: Path) -> None:
+    path = tmp_path / "module.py"
+    path.write_text("parser token", encoding="utf-8")
+    index = ProjectIndex(tmp_path)
+
+    assert index.select("parser")[0].path == "module.py"
+    path.write_text("renderer token with different size", encoding="utf-8")
+
+    assert index.select("renderer")[0].path == "module.py"

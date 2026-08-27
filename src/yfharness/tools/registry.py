@@ -14,6 +14,7 @@ from yfharness.core.models import (
     ToolCall,
     ToolDefinition,
     ToolResult,
+    ToolRiskLevel,
 )
 from yfharness.core.policies import (
     AgentMode,
@@ -21,9 +22,16 @@ from yfharness.core.policies import (
     PolicyAction,
     decide_tool_access,
 )
+from yfharness.core.workflows import (
+    HookEngine,
+    HookEvaluation,
+    WorkflowProfile,
+    combine_policy_actions,
+)
 from yfharness.tools.base import Tool, ToolContext
 
 ApprovalHandler = Callable[[ApprovalRequest], Awaitable[ApprovalDecision]]
+HookSink = Callable[[HookEvaluation], Awaitable[None]]
 
 
 class ToolRegistry:
@@ -59,6 +67,8 @@ class ToolExecutor:
         policy: ApprovalPolicy = ApprovalPolicy.SAFE_AUTO,
         approval_handler: ApprovalHandler | None = None,
         full_auto_enabled: bool = False,
+        workflow: WorkflowProfile | None = None,
+        hook_sink: HookSink | None = None,
     ) -> None:
         self.registry = registry
         self.context = context
@@ -66,17 +76,30 @@ class ToolExecutor:
         self.policy = policy
         self.approval_handler = approval_handler
         self.full_auto_enabled = full_auto_enabled
+        self.workflow = workflow
+        self.hooks = HookEngine(workflow) if workflow is not None else None
+        self.hook_sink = hook_sink
         self.session_allowed_tools: set[str] = set()
 
+    def definitions(self) -> list[ToolDefinition]:
+        definitions = self.registry.definitions()
+        return (
+            self.workflow.filter_definitions(definitions)
+            if self.workflow is not None
+            else definitions
+        )
+
     async def execute(self, call: ToolCall) -> ToolResult:
+        if self.workflow is not None and not self.workflow.exposes(call.name):
+            raise PolicyDeniedError(f"工作流 {self.workflow.id!r} 未向模型开放工具: {call.name}")
         tool = self.registry.get(call.name)
         try:
-            arguments = tool.input_model.model_validate(call.arguments)
-        except ValidationError as exc:
+            arguments = tool.validate_arguments(call.arguments)
+        except (ValidationError, ValueError) as exc:
             raise ToolExecutionError(f"工具参数无效: {exc}") from exc
         risk = tool.effective_risk(arguments)
         always_approval = tool.requires_approval(arguments)
-        action = decide_tool_access(
+        base_action = decide_tool_access(
             mode=self.mode,
             policy=self.policy,
             tool_name=tool.name,
@@ -85,6 +108,13 @@ class ToolExecutor:
             always_approval=always_approval,
             session_allowed_tools=self.session_allowed_tools,
             full_auto_enabled=self.full_auto_enabled,
+        )
+        evaluation = self.hooks.pre_tool_use(tool.name, risk) if self.hooks is not None else None
+        if evaluation is not None:
+            await self._emit_hook(evaluation)
+        action = combine_policy_actions(
+            base_action,
+            evaluation.policy_action() if evaluation is not None else None,
         )
         if action is PolicyAction.DENY:
             raise PolicyDeniedError(f"当前模式或权限策略禁止工具: {tool.name}")
@@ -109,11 +139,33 @@ class ToolExecutor:
                 raise asyncio.CancelledError
         self.context.tool_call_id = call.id
         change_index = self.context.changes.count if self.context.changes is not None else 0
-        result = await tool.execute(arguments, self.context)
+        try:
+            result = await tool.execute(arguments, self.context)
+        except BaseException:
+            await self._emit_post_hook(tool.name, risk, success=False)
+            raise
+        await self._emit_post_hook(tool.name, risk, success=result.success)
         if self.context.change_recorder is not None and self.context.changes is not None:
             for entry in self.context.changes.entries_since(change_index):
                 await self.context.change_recorder(entry)
         return result
+
+    async def _emit_post_hook(
+        self,
+        tool_name: str,
+        risk: ToolRiskLevel,
+        *,
+        success: bool,
+    ) -> None:
+        if self.hooks is None:
+            return
+        evaluation = self.hooks.post_tool_use(tool_name, risk, success=success)
+        if evaluation is not None:
+            await self._emit_hook(evaluation)
+
+    async def _emit_hook(self, evaluation: HookEvaluation) -> None:
+        if self.hook_sink is not None:
+            await self.hook_sink(evaluation)
 
 
 def builtin_tools() -> ToolRegistry:

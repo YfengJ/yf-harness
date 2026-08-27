@@ -26,6 +26,12 @@ class MessageRole(StrEnum):
 class ContentPartType(StrEnum):
     TEXT = "text"
     FILE = "file"
+    IMAGE = "image"
+
+
+class AttachmentTransfer(StrEnum):
+    LOCAL_ONLY = "local_only"
+    REMOTE_MODEL = "remote_model"
 
 
 class ContentPart(DomainModel):
@@ -33,6 +39,23 @@ class ContentPart(DomainModel):
     text: str = ""
     path: str | None = None
     mime_type: str | None = None
+    transfer: AttachmentTransfer = AttachmentTransfer.LOCAL_ONLY
+    size_bytes: int | None = Field(default=None, ge=0)
+    sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def validate_attachment(self) -> ContentPart:
+        if self.type is ContentPartType.TEXT:
+            if self.path is not None:
+                raise ValueError("text content cannot have a path")
+            if self.transfer is not AttachmentTransfer.LOCAL_ONLY:
+                raise ValueError("text content cannot declare attachment transfer")
+            return self
+        if not self.path or not self.mime_type or self.size_bytes is None or self.sha256 is None:
+            raise ValueError("attachment content requires path, mime_type, size_bytes, and sha256")
+        if self.text:
+            raise ValueError("attachment content cannot contain inline text")
+        return self
 
 
 class Message(DomainModel):
@@ -59,6 +82,7 @@ class ModelCapabilities(DomainModel):
     supports_native_tools: bool = False
     supports_reasoning: bool = False
     supports_system_message: bool = True
+    supports_image_input: bool = False
     context_window: int | None = Field(default=None, gt=0)
     max_output_tokens: int | None = Field(default=None, gt=0)
     tokenizer: str | None = None

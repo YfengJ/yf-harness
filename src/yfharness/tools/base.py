@@ -57,6 +57,9 @@ class Tool(ABC):
             read_only=self.read_only,
         )
 
+    def validate_arguments(self, value: dict[str, object]) -> ToolInput:
+        return self.input_model.model_validate(value)
+
     def effective_risk(self, arguments: ToolInput) -> ToolRiskLevel:
         return self.risk_level
 

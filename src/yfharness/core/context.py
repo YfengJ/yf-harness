@@ -98,10 +98,18 @@ class ContextBuilder:
     ) -> ContextSnapshot:
         sources: list[ContextSource] = []
         system = build_system_prompt(mode, tools, native_tools=native_tools)
+        request_budget = max(
+            1,
+            (model.context_window or 32_000) - (model.max_output_tokens or 4_096),
+        )
         auto_paths = self._auto_relevant_paths(user_input)
         relevant_paths = [*self.attachments, *auto_paths]
         instruction_text = self._instruction_text(sources, relevant_paths)
-        attachment_text = self._attachments_text(sources, auto_paths)
+        attachment_text = self._attachments_text(
+            sources,
+            auto_paths,
+            auto_token_budget=min(8_000, max(256, request_budget // 4)),
+        )
         combined_system = system
         if instruction_text:
             combined_system += "\n\n# 项目与用户指令\n" + instruction_text
@@ -250,21 +258,10 @@ class ContextBuilder:
         self,
         sources: list[ContextSource],
         auto_paths: list[str],
+        *,
+        auto_token_budget: int,
     ) -> str:
-        combined = dict(self.attachments)
-        for relative in auto_paths:
-            if relative not in combined:
-                path = self.guard.resolve(relative, must_exist=True)
-                text = self._attachment_text(path)
-                combined[relative] = text
-                sources.append(
-                    ContextSource(
-                        kind="auto_file",
-                        label=relative,
-                        path=relative,
-                        estimated_tokens=self.estimator(text),
-                    )
-                )
+        sections = [f"## {path}\n{text}" for path, text in self.attachments.items()]
         for relative, text in self.attachments.items():
             sources.append(
                 ContextSource(
@@ -274,7 +271,41 @@ class ContextBuilder:
                     estimated_tokens=self.estimator(text),
                 )
             )
-        return "\n\n".join(f"## {path}\n{text}" for path, text in combined.items())
+        remaining = auto_token_budget
+        for relative in auto_paths:
+            if relative in self.attachments or remaining <= 0:
+                continue
+            path = self.guard.resolve(relative, must_exist=True)
+            text = self._fit_text_to_tokens(self._attachment_text(path), remaining)
+            if not text:
+                continue
+            tokens = self.estimator(text)
+            remaining -= tokens
+            sections.append(f"## {relative}\n{text}")
+            sources.append(
+                ContextSource(
+                    kind="auto_file",
+                    label=relative,
+                    path=relative,
+                    estimated_tokens=tokens,
+                )
+            )
+        return "\n\n".join(sections)
+
+    def _fit_text_to_tokens(self, text: str, budget: int) -> str:
+        if budget <= 0:
+            return ""
+        if self.estimator(text) <= budget:
+            return text
+        low, high = 0, len(text)
+        while low < high:
+            middle = (low + high + 1) // 2
+            candidate = text[:middle] + "\n... <auto context truncated>"
+            if self.estimator(candidate) <= budget:
+                low = middle
+            else:
+                high = middle - 1
+        return text[:low] + "\n... <auto context truncated>" if low else ""
 
     def _auto_relevant_paths(self, user_input: str) -> list[str]:
         candidates = re.findall(r"[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*", user_input)

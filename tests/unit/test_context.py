@@ -201,3 +201,27 @@ def test_context_automatically_selects_semantically_relevant_local_file(tmp_path
     assert any(
         source.kind == "auto_file" and source.path == "parser.py" for source in snapshot.sources
     )
+
+
+def test_automatic_file_context_is_bounded_for_large_projects(tmp_path: Path) -> None:
+    for index in range(5):
+        (tmp_path / f"parser_{index}.py").write_text(
+            "parser validation\n" + "x" * 100_000,
+            encoding="utf-8",
+        )
+    builder = ContextBuilder(tmp_path, lambda text: max(1, len(text) // 4))
+
+    snapshot = builder.build(
+        user_input="improve parser validation",
+        history=[],
+        mode=AgentMode.PLAN,
+        tools=[],
+        model=model(context_window=8_000),
+        native_tools=True,
+    )
+
+    auto_tokens = sum(
+        source.estimated_tokens for source in snapshot.sources if source.kind == "auto_file"
+    )
+    assert auto_tokens <= 1_975
+    assert snapshot.estimated_tokens <= snapshot.budget_tokens

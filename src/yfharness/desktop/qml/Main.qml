@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Dialogs
 import QtQuick.Layouts
 
 ApplicationWindow {
@@ -34,7 +35,8 @@ ApplicationWindow {
         if (!value)
             return
         controller.sendMessage(value, providerSelect.currentText, modelSelect.currentText,
-                               modeSelect.currentText, permissionSelect.currentText)
+                               workflowSelect.currentText, modeSelect.currentText,
+                               permissionSelect.currentText)
         promptInput.clear()
     }
 
@@ -694,7 +696,7 @@ ApplicationWindow {
                     Layout.leftMargin: Math.max(26, (workspace.width - 900) / 2)
                     Layout.rightMargin: Math.max(26, (workspace.width - 900) / 2)
                     Layout.bottomMargin: 22
-                    Layout.preferredHeight: 132
+                    Layout.preferredHeight: controller && controller.attachmentCount > 0 ? 172 : 142
                     radius: 15
                     color: root.surface
                     border.width: 1
@@ -724,8 +726,67 @@ ApplicationWindow {
                                 }
                             }
                         }
+                        ListView {
+                            visible: controller ? controller.attachmentCount > 0 : false
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: visible ? 29 : 0
+                            orientation: ListView.Horizontal
+                            spacing: 7
+                            clip: true
+                            model: controller ? controller.attachmentModel : null
+                            delegate: Rectangle {
+                                required property string attachmentId
+                                required property string name
+                                required property string transfer
+                                width: attachmentLabel.implicitWidth + 34
+                                height: 27
+                                radius: 8
+                                color: "#1B2228"
+                                border.color: root.line
+                                Text {
+                                    id: attachmentLabel
+                                    anchors.left: parent.left
+                                    anchors.leftMargin: 10
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: name + " · " + transfer
+                                    color: root.textSecondary
+                                    font.pixelSize: 9
+                                }
+                                Text {
+                                    anchors.right: parent.right
+                                    anchors.rightMargin: 8
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: "×"
+                                    color: attachmentMouse.containsMouse ? root.textPrimary : root.textMuted
+                                    font.pixelSize: 13
+                                }
+                                MouseArea {
+                                    id: attachmentMouse
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: controller.removeAttachment(attachmentId)
+                                }
+                            }
+                        }
                         RowLayout {
                             Layout.fillWidth: true
+                            QuietButton {
+                                label: "图片"
+                                glyph: "+"
+                                onClicked: imageDialog.open()
+                            }
+                            Switch {
+                                id: sendImageSwitch
+                                text: "发送图片内容"
+                                checked: false
+                                font.pixelSize: 10
+                                palette.text: root.textSecondary
+                                ToolTip.visible: hovered
+                                ToolTip.text: checked
+                                              ? "所选图片将发送给远程模型"
+                                              : "默认仅在本地记录，不上传图片内容"
+                            }
                             Text {
                                 text: "⌘ ↵ 发送"
                                 color: root.textMuted
@@ -833,6 +894,26 @@ ApplicationWindow {
                             }
                             Text { Layout.topMargin: 17; text: "MODEL"; color: root.textMuted; font.pixelSize: 9; font.letterSpacing: 0.9 }
                             ControlSelect { id: modelSelect; Layout.fillWidth: true; Layout.topMargin: 7 }
+                            Text { Layout.topMargin: 17; text: "WORKFLOW"; color: root.textMuted; font.pixelSize: 9; font.letterSpacing: 0.9 }
+                            ControlSelect {
+                                id: workflowSelect
+                                Layout.fillWidth: true
+                                Layout.topMargin: 7
+                                model: controller ? controller.workflowOptions : []
+                                onActivated: {
+                                    root.selectValue(modeSelect, controller.workflowMode(currentText))
+                                    root.selectValue(permissionSelect, controller.workflowPermissions(currentText))
+                                }
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                Layout.topMargin: 7
+                                text: controller && workflowSelect.currentText.length > 0
+                                      ? controller.workflowDescription(workflowSelect.currentText) : ""
+                                color: root.textMuted
+                                font.pixelSize: 9
+                                wrapMode: Text.Wrap
+                            }
                             Text { Layout.topMargin: 17; text: "MODE"; color: root.textMuted; font.pixelSize: 9; font.letterSpacing: 0.9 }
                             ControlSelect {
                                 id: modeSelect
@@ -882,6 +963,7 @@ ApplicationWindow {
                                         onClicked: controller.executeLastPlan(
                                             providerSelect.currentText,
                                             modelSelect.currentText,
+                                            workflowSelect.currentText,
                                             permissionSelect.currentText
                                         )
                                     }
@@ -1061,12 +1143,13 @@ ApplicationWindow {
                     onClicked: {
                         controller.reloadConfiguration()
                         root.selectValue(providerSelect, controller.defaultProvider)
+                        root.selectValue(workflowSelect, controller.defaultWorkflow)
                     }
                 }
                 Text {
                     Layout.fillWidth: true
                     Layout.topMargin: 10
-                    text: "YF-Harness 0.4 · Local first"
+                    text: "YF-Harness 0.5 · Local first"
                     color: root.textMuted
                     font.pixelSize: 9
                     horizontalAlignment: Text.AlignHCenter
@@ -1077,9 +1160,20 @@ ApplicationWindow {
                 root.selectValue(providerSelect, controller.defaultProvider)
                 modelSelect.model = controller.modelsForProvider(providerSelect.currentText)
                 root.selectValue(modelSelect, controller.defaultModel)
+                root.selectValue(workflowSelect, controller.defaultWorkflow)
+                root.selectValue(modeSelect, controller.workflowMode(workflowSelect.currentText))
+                root.selectValue(permissionSelect,
+                                 controller.workflowPermissions(workflowSelect.currentText))
             }
             Behavior on Layout.preferredWidth { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
         }
+    }
+
+    FileDialog {
+        id: imageDialog
+        title: "选择项目内的图片"
+        nameFilters: ["Images (*.png *.jpg *.jpeg *.gif *.webp)"]
+        onAccepted: controller.addImage(selectedFile.toString(), sendImageSwitch.checked)
     }
 
     Dialog {

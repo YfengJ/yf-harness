@@ -10,6 +10,7 @@ from collections.abc import Callable, Coroutine
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -21,6 +22,7 @@ from PySide6.QtCore import (
     QObject,
     QPersistentModelIndex,
     Qt,
+    QUrl,
     Signal,
     Slot,
 )
@@ -37,14 +39,17 @@ from yfharness.core.agent_events import (
     ToolExecutionFinished,
     ToolExecutionStarted,
 )
+from yfharness.core.attachments import prepare_image
 from yfharness.core.context import ContextBuilder
 from yfharness.core.events import TextDelta
-from yfharness.core.models import ApprovalDecision, ApprovalRequest, MessageRole
+from yfharness.core.models import ApprovalDecision, ApprovalRequest, ContentPart, MessageRole
 from yfharness.core.policies import AgentMode, ApprovalPolicy
 from yfharness.core.review import ChangeReviewItem, WorkspaceReview
 from yfharness.storage.database import Database
 from yfharness.storage.models import SessionRecord
 from yfharness.storage.repositories import FileChangeRepository, RunRepository, SessionRepository
+from yfharness.tools.registry import builtin_tools
+from yfharness.tools.security import WorkspaceGuard
 
 _INVALID_MODEL_INDEX = QModelIndex()
 
@@ -118,8 +123,10 @@ class _QueuedRun:
     prompt: str
     provider: str
     model: str
+    workflow: str
     mode: AgentMode
     permissions: ApprovalPolicy
+    attachments: tuple[ContentPart, ...]
 
 
 class DesktopController(QObject):
@@ -130,6 +137,7 @@ class DesktopController(QObject):
     currentSessionChanged = Signal()
     configurationChanged = Signal()
     queueChanged = Signal()
+    attachmentsChanged = Signal()
     planChanged = Signal()
     contextChanged = Signal()
     errorOccurred = Signal(str)
@@ -149,6 +157,9 @@ class DesktopController(QObject):
             self,
         )
         self.queue = DictListModel(["queueId", "prompt", "detail"], self)
+        self.attachments = DictListModel(
+            ["attachmentId", "name", "path", "mimeType", "size", "transfer"], self
+        )
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="yfh-desktop")
         self._busy = False
         self._status = "准备就绪"
@@ -163,6 +174,7 @@ class DesktopController(QObject):
         self._approval_lock = threading.Lock()
         self._pending_approvals: dict[str, _PendingApproval] = {}
         self._queued_runs: deque[_QueuedRun] = deque()
+        self._pending_attachments: list[tuple[str, ContentPart]] = []
         self._queue_paused = False
         self._last_plan = ""
         self._context_summary = "尚未运行任务"
@@ -189,6 +201,14 @@ class DesktopController(QObject):
     @Property(QObject, constant=True)
     def queueModel(self) -> QObject:
         return self.queue
+
+    @Property(QObject, constant=True)
+    def attachmentModel(self) -> QObject:
+        return self.attachments
+
+    @Property(int, notify=attachmentsChanged)
+    def attachmentCount(self) -> int:
+        return len(self._pending_attachments)
 
     @Property(bool, notify=busyChanged)
     def busy(self) -> bool:
@@ -240,6 +260,28 @@ class DesktopController(QObject):
     def defaultModel(self) -> str:
         return self._config.default_model
 
+    @Property("QStringList", notify=configurationChanged)  # type: ignore[arg-type]
+    def workflowOptions(self) -> list[str]:
+        return sorted(self._config.workflows)
+
+    @Property(str, notify=configurationChanged)
+    def defaultWorkflow(self) -> str:
+        return self._config.default_workflow
+
+    @Slot(str, result=str)
+    def workflowMode(self, name: str) -> str:
+        return self._config.workflow(name).mode.value
+
+    @Slot(str, result=str)
+    def workflowPermissions(self, name: str) -> str:
+        return self._config.workflow(name).permissions.value
+
+    @Slot(str, result=str)
+    def workflowDescription(self, name: str) -> str:
+        workflow = self._config.workflow(name)
+        visible = len(workflow.filter_definitions(builtin_tools().definitions()))
+        return f"{workflow.label} · {visible} 个工具 · {len(workflow.hooks)} 个 Hook"
+
     @Slot(str, result="QStringList")
     def modelsForProvider(self, provider: str) -> list[str]:
         return [
@@ -247,6 +289,35 @@ class DesktopController(QObject):
             for name, model in sorted(self._config.models.items())
             if model.provider == provider
         ]
+
+    @Slot(str, bool)
+    def addImage(self, value: str, send_to_model: bool) -> None:
+        url = QUrl(value)
+        local_path = url.toLocalFile() if url.isLocalFile() else value
+        try:
+            part = prepare_image(
+                local_path, WorkspaceGuard(self._config.workspace), send_to_model=send_to_model
+            )
+        except Exception as exc:
+            self.errorOccurred.emit(str(exc))
+            return
+        attachment_id = str(uuid4())
+        self._pending_attachments.append((attachment_id, part))
+        self._refresh_attachments()
+        boundary = "将发送给模型" if send_to_model else "仅本地"
+        self._set_status(f"已附加 {Path(part.path or '').name} · {boundary}")
+
+    @Slot(str)
+    def removeAttachment(self, attachment_id: str) -> None:
+        self._pending_attachments = [
+            item for item in self._pending_attachments if item[0] != attachment_id
+        ]
+        self._refresh_attachments()
+
+    @Slot()
+    def clearAttachments(self) -> None:
+        self._pending_attachments.clear()
+        self._refresh_attachments()
 
     @Slot()
     def bootstrap(self) -> None:
@@ -277,14 +348,20 @@ class DesktopController(QObject):
         self._submit("open_session", lambda: self._load_session(session_id))
 
     @Slot(str, str, str, str, str)
+    @Slot(str, str, str, str, str, str)
     def sendMessage(
         self,
         prompt: str,
         provider: str,
         model: str,
+        workflow: str,
         mode: str,
-        permissions: str,
+        permissions: str = "",
     ) -> None:
+        if not permissions:  # Compatibility with the 0.4 five-argument bridge.
+            permissions = mode
+            mode = workflow
+            workflow = self._config.default_workflow
         prompt = prompt.strip()
         if not prompt:
             return
@@ -294,24 +371,47 @@ class DesktopController(QObject):
         if model not in self._config.models or self._config.models[model].provider != provider:
             self.errorOccurred.emit("所选模型不属于当前 Provider")
             return
+        if workflow not in self._config.workflows:
+            self.errorOccurred.emit(f"未知工作流：{workflow}")
+            return
         try:
             selected_mode = AgentMode(mode)
             selected_policy = ApprovalPolicy(permissions)
         except ValueError:
             self.errorOccurred.emit("运行模式或权限策略无效")
             return
+        attachments = tuple(part for _, part in self._pending_attachments)
+        self.clearAttachments()
         if self._busy:
-            self._enqueue(prompt, provider, model, selected_mode, selected_policy)
+            self._enqueue(
+                prompt,
+                provider,
+                model,
+                workflow,
+                selected_mode,
+                selected_policy,
+                attachments,
+            )
             return
-        self._start_message(prompt, provider, model, selected_mode, selected_policy)
+        self._start_message(
+            prompt,
+            provider,
+            model,
+            workflow,
+            selected_mode,
+            selected_policy,
+            attachments,
+        )
 
     def _start_message(
         self,
         prompt: str,
         provider: str,
         model: str,
+        workflow: str,
         mode: AgentMode,
         permissions: ApprovalPolicy,
+        attachments: tuple[ContentPart, ...],
     ) -> None:
         if not self._current_session_id:
             self._current_session_title = prompt.splitlines()[0][:80]
@@ -323,7 +423,9 @@ class DesktopController(QObject):
         self._set_status("正在准备上下文")
         self._submit(
             "run",
-            lambda: self._run_agent(prompt, provider, model, mode, permissions),
+            lambda: self._run_agent(
+                prompt, provider, model, workflow, mode, permissions, attachments
+            ),
         )
 
     def _enqueue(
@@ -331,16 +433,21 @@ class DesktopController(QObject):
         prompt: str,
         provider: str,
         model: str,
+        workflow: str,
         mode: AgentMode,
         permissions: ApprovalPolicy,
+        attachments: tuple[ContentPart, ...],
     ) -> None:
-        queued = _QueuedRun(str(uuid4()), prompt, provider, model, mode, permissions)
+        queued = _QueuedRun(
+            str(uuid4()), prompt, provider, model, workflow, mode, permissions, attachments
+        )
         self._queued_runs.append(queued)
         self.queue.append_item(
             {
                 "queueId": queued.id,
                 "prompt": prompt,
-                "detail": f"{model} · {mode.value}",
+                "detail": f"{model} · {workflow} · {mode.value}"
+                + (f" · {len(attachments)} 张图片" if attachments else ""),
             }
         )
         self.queueChanged.emit()
@@ -362,7 +469,17 @@ class DesktopController(QObject):
         self._start_next_queued()
 
     @Slot(str, str, str)
-    def executeLastPlan(self, provider: str, model: str, permissions: str) -> None:
+    @Slot(str, str, str, str)
+    def executeLastPlan(
+        self,
+        provider: str,
+        model: str,
+        workflow: str,
+        permissions: str = "",
+    ) -> None:
+        if not permissions:
+            permissions = workflow
+            workflow = self._config.default_workflow
         if not self._last_plan:
             self.errorOccurred.emit("当前会话没有可执行计划")
             return
@@ -371,6 +488,7 @@ class DesktopController(QObject):
             + self._last_plan,
             provider,
             model,
+            workflow,
             AgentMode.AGENT.value,
             permissions,
         )
@@ -602,8 +720,10 @@ class DesktopController(QObject):
         prompt: str,
         provider: str,
         model: str,
+        workflow: str,
         mode: AgentMode,
         permissions: ApprovalPolicy,
+        attachments: tuple[ContentPart, ...],
     ) -> dict[str, object]:
         loop = asyncio.get_running_loop()
 
@@ -622,11 +742,14 @@ class DesktopController(QObject):
             save=True,
             mode=mode,
             permissions=permissions,
+            workflow_name=workflow,
+            attachment_parts=list(attachments),
             event_sink=self._observe_event,
             approval_handler=self._request_approval,
             runner_sink=runner_sink,
         )
         result["mode"] = mode.value
+        result["workflow_id"] = workflow
         return result
 
     async def _observe_event(self, event: AgentEvent) -> None:
@@ -788,8 +911,10 @@ class DesktopController(QObject):
             queued.prompt,
             queued.provider,
             queued.model,
+            queued.workflow,
             queued.mode,
             queued.permissions,
+            queued.attachments,
         )
 
     def _clear_runner(self) -> None:
@@ -801,6 +926,24 @@ class DesktopController(QObject):
         self.instructions.replace(self._base_context_items)
         self._context_summary = "会话上下文将在下次运行时刷新"
         self.contextChanged.emit()
+
+    def _refresh_attachments(self) -> None:
+        self.attachments.replace(
+            [
+                {
+                    "attachmentId": attachment_id,
+                    "name": Path(part.path or "").name,
+                    "path": part.path or "",
+                    "mimeType": part.mime_type or "",
+                    "size": part.size_bytes or 0,
+                    "transfer": (
+                        "发送给模型" if part.transfer.value == "remote_model" else "仅本地"
+                    ),
+                }
+                for attachment_id, part in self._pending_attachments
+            ]
+        )
+        self.attachmentsChanged.emit()
 
     def _set_busy(self, value: bool) -> None:
         if self._busy != value:

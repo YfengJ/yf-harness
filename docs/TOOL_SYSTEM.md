@@ -8,6 +8,8 @@ Provider 原生 Tool Calling 会被增量组装成规范化调用；不支持原
 
 权限档位与模式共同决定结果：只读模式不能被较宽权限绕过，删除和 Shell 始终要求审批，`full_auto` 默认整体禁用。审批展示工具、参数、命令、路径与可用 Diff，允许一次、会话内同类、拒绝或取消。
 
+0.5 增加 Workflow Profile 和 MCP stdio 适配。Profile 同时过滤模型可见工具与真实执行；Hook 只能收紧基础 Policy。MCP 工具映射到隔离名称，不信任服务端 annotation，默认按高风险非只读工具审批。详细契约见 [WORKFLOWS_MCP.md](WORKFLOWS_MCP.md)。
+
 降级格式另见 [FALLBACK_TOOL_PROTOCOL.md](FALLBACK_TOOL_PROTOCOL.md)，信任边界另见 [SECURITY_MODEL.md](SECURITY_MODEL.md)。
 
 ## 我应该理解什么

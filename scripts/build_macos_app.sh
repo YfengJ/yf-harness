@@ -46,8 +46,22 @@ bundle_plist="${output_app}/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName YF-Harness" "${bundle_plist}"
 /usr/libexec/PlistBuddy -c "Set :CFBundleName YF-Harness" "${bundle_plist}"
 /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier local.yfharness.desktop" "${bundle_plist}"
+
+for forbidden in QtWebEngineCore QtQuick3D QtCharts QtSensors QtTest; do
+  if find "${output_app}/Contents/MacOS" -maxdepth 1 -name "${forbidden}*" -print -quit | grep -q .; then
+    echo "Unexpected excluded Qt module in bundle: ${forbidden}" >&2
+    exit 1
+  fi
+done
+
+bundle_kib="$(du -sk "${output_app}" | awk '{print $1}')"
+if (( bundle_kib > 327680 )); then
+  echo "Bundle exceeds 320 MiB budget: $((bundle_kib / 1024)) MiB" >&2
+  exit 1
+fi
+
 codesign --force --deep --sign - "${output_app}"
 plutil -lint "${bundle_plist}"
 open -W "${output_app}" --args --smoke-test
 
-echo "Built and verified: ${output_app}"
+echo "Built and verified: ${output_app} ($((bundle_kib / 1024)) MiB)"

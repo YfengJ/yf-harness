@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import httpx
 import pytest
 
 from yfharness.config.models import ProviderSettings
+from yfharness.core.attachments import prepare_image
 from yfharness.core.events import (
     FinishEvent,
     ReasoningDelta,
@@ -14,17 +16,20 @@ from yfharness.core.events import (
     ToolCallCompleted,
     UsageEvent,
 )
+from yfharness.core.exceptions import ProviderError
 from yfharness.core.models import ChatRequest, Message, MessageRole, ModelConfig
 from yfharness.providers.openai_compatible import OpenAICompatibleProvider
+from yfharness.tools.security import WorkspaceGuard
 
 
-def model() -> ModelConfig:
+def model(*, supports_images: bool = False) -> ModelConfig:
     return ModelConfig(
         id="test-model",
         provider="remote",
         model="upstream-model",
         supports_streaming=True,
         supports_native_tools=True,
+        supports_image_input=supports_images,
     )
 
 
@@ -158,6 +163,41 @@ async def test_non_streaming_completion() -> None:
     finally:
         await client.aclose()
     assert any(isinstance(event, TextDelta) and event.text == "done" for event in events)
+
+
+@pytest.mark.asyncio
+async def test_multimodal_message_uses_explicit_verified_data_url(tmp_path: Path) -> None:
+    image = tmp_path / "sample.png"
+    image.write_bytes(b"\x89PNG\r\n\x1a\nimage")
+    message = Message.text(MessageRole.USER, "describe")
+    message.content.append(prepare_image(image, WorkspaceGuard(tmp_path), send_to_model=True))
+
+    async def handler(request_value: httpx.Request) -> httpx.Response:
+        content = json.loads(request_value.content)["messages"][0]["content"]
+        assert content[0] == {"type": "text", "text": "describe"}
+        assert content[1]["type"] == "image_url"
+        assert content[1]["image_url"]["url"].startswith("data:image/png;base64,")
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": "done"}, "finish_reason": "stop"}]},
+        )
+
+    instance, client = provider(httpx.MockTransport(handler))
+    multimodal = ChatRequest(model=model(supports_images=True), messages=[message], stream=False)
+    try:
+        _ = [event async for event in instance.stream_chat(multimodal)]
+    finally:
+        await client.aclose()
+
+
+def test_remote_image_requires_declared_model_capability(tmp_path: Path) -> None:
+    image = tmp_path / "sample.png"
+    image.write_bytes(b"\x89PNG\r\n\x1a\nimage")
+    message = Message.text(MessageRole.USER, "describe")
+    message.content.append(prepare_image(image, WorkspaceGuard(tmp_path), send_to_model=True))
+
+    with pytest.raises(ProviderError, match="未声明图片"):
+        OpenAICompatibleProvider._message_payload(message, supports_images=False)
 
 
 @pytest.mark.asyncio

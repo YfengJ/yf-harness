@@ -52,10 +52,15 @@ def test_desktop_controller_runs_and_persists_mock_task(
     monkeypatch.setenv("YFH_DATA_DIR", str(tmp_path / "data"))
     controller = DesktopController()
 
+    assert controller.defaultWorkflow == "balanced"
+    assert controller.workflowMode("plan") == "plan"
+    assert controller.workflowPermissions("guarded") == "always_ask"
+
     controller.sendMessage(
         "Desktop mock task",
         "mock",
         "mock-default",
+        "balanced",
         "agent",
         "safe_auto",
     )
@@ -122,6 +127,26 @@ def test_new_session_resets_runtime_context_to_project_instructions(
     assert controller.instructions.rowCount() == 2
     assert _item(controller.instructions, 0)["path"] == "AGENTS.md"
     assert controller.contextSummary == "会话上下文将在下次运行时刷新"
+    controller.shutdown()
+
+
+@pytest.mark.desktop
+def test_desktop_image_attachment_keeps_transfer_choice_explicit(
+    qt_application: QGuiApplication,
+    tmp_path: Path,
+) -> None:
+    controller = DesktopController()
+    controller._config.workspace = tmp_path
+    image = tmp_path / "screen.png"
+    image.write_bytes(b"\x89PNG\r\n\x1a\nimage")
+
+    controller.addImage(image.as_uri(), False)
+
+    assert controller.attachmentCount == 1
+    assert _item(controller.attachments, 0)["transfer"] == "仅本地"
+    attachment_id = str(_item(controller.attachments, 0)["attachmentId"])
+    controller.removeAttachment(attachment_id)
+    assert controller.attachmentCount == 0
     controller.shutdown()
 
 

@@ -34,6 +34,8 @@ from yfharness.core.models import (
     AgentRunResult,
     AgentState,
     ChatRequest,
+    ContentPart,
+    ContentPartType,
     DomainModel,
     Message,
     MessageRole,
@@ -147,6 +149,7 @@ class AgentRunner:
         session_id: str,
         history: list[Message] | None = None,
         existing_run: AgentRun | None = None,
+        attachments: list[ContentPart] | None = None,
     ) -> AgentRunResult:
         if not user_input.strip():
             raise ValueError("user_input must not be empty")
@@ -181,6 +184,16 @@ class AgentRunner:
                         f"[Harness instructions]\n{system_prompt}\n\n[User]\n{user_input}",
                     )
                 )
+        if attachments:
+            if any(part.type is ContentPartType.TEXT for part in attachments):
+                raise ValueError("attachments cannot contain text content parts")
+            user_message = next(
+                (message for message in reversed(messages) if message.role is MessageRole.USER),
+                None,
+            )
+            if user_message is None:
+                raise ValueError("attachments require a user message")
+            user_message.content.extend(attachments)
         final_text = ""
         signatures: Counter[str] = Counter()
         repairs = 0
@@ -342,7 +355,7 @@ class AgentRunner:
             )
 
     def _available_tools(self) -> list[ToolDefinition]:
-        definitions = self.tools.registry.definitions()
+        definitions = self.tools.definitions()
         if self.mode in {AgentMode.PLAN, AgentMode.REVIEW, AgentMode.CHAT}:
             return [definition for definition in definitions if definition.read_only]
         return definitions

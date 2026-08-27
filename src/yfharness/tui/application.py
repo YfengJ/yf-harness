@@ -31,6 +31,7 @@ from yfharness.core.agent import AgentLimits, AgentRunner
 from yfharness.core.agent_events import (
     AgentEvent,
     BudgetUpdated,
+    HookEvaluated,
     ModelEventObserved,
     StateChanged,
     ToolExecutionFinished,
@@ -46,7 +47,9 @@ from yfharness.core.models import (
     RunStatus,
 )
 from yfharness.core.policies import AgentMode, ApprovalPolicy
+from yfharness.core.workflows import HookEvaluation
 from yfharness.diagnostics import run_doctor
+from yfharness.integrations.mcp import register_mcp_tools
 from yfharness.providers.registry import provider_from_config
 from yfharness.storage.database import Database
 from yfharness.storage.models import SessionRecord
@@ -107,8 +110,10 @@ class YFHarnessApp(App[None]):
         self.traces = TraceRepository(self.database)
         self.provider_name = self.config.default_provider
         self.model_name = self.config.default_model
-        self.mode = AgentMode.AGENT
-        self.policy = ApprovalPolicy.SAFE_AUTO
+        self.workflow_name = self.config.default_workflow
+        workflow = self.config.workflow(self.workflow_name)
+        self.mode = workflow.mode
+        self.policy = workflow.permissions
         self.current_session_id: str | None = None
         self.active_runner: AgentRunner | None = None
         self.input_history: list[str] = []
@@ -275,12 +280,16 @@ class YFHarnessApp(App[None]):
                 )
 
             tool_context.change_recorder = record_change
+            registry = builtin_tools()
+            await register_mcp_tools(registry, self.config, self.guard.root)
             executor = ToolExecutor(
-                builtin_tools(),
+                registry,
                 tool_context,
                 mode=self.mode,
                 policy=self.policy,
                 approval_handler=self._approve,
+                workflow=self.config.workflow(self.workflow_name),
+                hook_sink=self._observe_hook,
             )
             limits = AgentLimits(
                 max_steps=self.config.agent.max_steps,
@@ -323,7 +332,11 @@ class YFHarnessApp(App[None]):
                 run_id=run_record.run_id,
                 provider=self.provider_name,
                 model=self.model_name,
-                request={"task": prompt, "mode": self.mode.value},
+                request={
+                    "task": prompt,
+                    "mode": self.mode.value,
+                    "workflow": self.workflow_name,
+                },
                 events=[event.model_dump(mode="json") for event in self._observed_events],
                 duration=duration,
                 error_type=(
@@ -354,7 +367,7 @@ class YFHarnessApp(App[None]):
                 for event in self._observed_events
                 if isinstance(event, ToolExecutionFinished)
             }
-            definitions = {item.name: item for item in builtin_tools().definitions()}
+            definitions = {item.name: item for item in registry.definitions()}
             for call_id, call in calls.items():
                 tool_result = results.get(call_id)
                 await self.traces.record_tool_call(
@@ -413,6 +426,9 @@ class YFHarnessApp(App[None]):
             self.query_one("#usage", Static).update(
                 f"Token: {event.usage.total_tokens} ({marker}) · Cost: {event.cost:.6f}"
             )
+
+    async def _observe_hook(self, evaluation: HookEvaluation) -> None:
+        await self._observe_agent(HookEvaluated(evaluation=evaluation))
 
     async def _approve(self, request: ApprovalRequest) -> ApprovalDecision:
         decision = await self.push_screen_wait(ApprovalScreen(request))
@@ -493,11 +509,26 @@ class YFHarnessApp(App[None]):
             self.notify("模式必须是 chat/plan/agent/review", severity="error")
         self._update_status_labels()
 
+    def command_workflow(self, arguments: tuple[str, ...]) -> None:
+        if not arguments:
+            self.notify(f"当前工作流: {self.workflow_name}")
+            return
+        if arguments[0] not in self.config.workflows:
+            self.notify("未知工作流", severity="error")
+            return
+        self.workflow_name = arguments[0]
+        workflow = self.config.workflow(self.workflow_name)
+        self.mode = workflow.mode
+        self.policy = workflow.permissions
+        self._update_status_labels()
+
     def command_tools(self, _: tuple[str, ...]) -> None:
         lines = [
             f"- `{item.name}` ({item.risk_level.value}, "
             f"{'只读' if item.read_only else '写入/执行'})"
-            for item in builtin_tools().definitions()
+            for item in self.config.workflow(self.workflow_name).filter_definitions(
+                builtin_tools().definitions()
+            )
         ]
         self.mount_markdown("## 可用工具\n" + "\n".join(lines))
 
@@ -689,6 +720,7 @@ class YFHarnessApp(App[None]):
                 self.config,
                 provider=self.provider_name,
                 model=self.model_name,
+                workflow=self.workflow_name,
                 mode=self.mode,
                 policy=self.policy,
             )
@@ -696,6 +728,7 @@ class YFHarnessApp(App[None]):
         if isinstance(selection, SettingsSelection):
             self.provider_name = selection.provider
             self.model_name = selection.model
+            self.workflow_name = selection.workflow
             self.mode = selection.mode
             self.policy = selection.policy
             self._update_status_labels()
@@ -717,7 +750,7 @@ class YFHarnessApp(App[None]):
     def _update_status_labels(self) -> None:
         self.query_one("#provider-label", Static).update(
             f"Provider: {self.provider_name}\nModel: {self.model_name}\n"
-            f"Mode: {self.mode.value}\nPolicy: {self.policy.value}"
+            f"Workflow: {self.workflow_name}\nMode: {self.mode.value}\nPolicy: {self.policy.value}"
         )
         self.query_one("#workspace-status", Static).update(f"Workspace\n{self.guard.root}")
         self.query_one("#context-status", Static).update(f"附件: {len(self.attached_paths)}")

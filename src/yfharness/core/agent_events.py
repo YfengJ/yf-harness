@@ -9,6 +9,7 @@ from pydantic import Field
 
 from yfharness.core.events import ModelEvent
 from yfharness.core.models import AgentState, DomainModel, ToolCall, ToolResult, Usage
+from yfharness.core.workflows import HookEvaluation
 
 
 class StateChanged(DomainModel):
@@ -38,11 +39,17 @@ class BudgetUpdated(DomainModel):
     cost: float = 0
 
 
+class HookEvaluated(DomainModel):
+    type: Literal["hook_evaluated"] = "hook_evaluated"
+    evaluation: HookEvaluation
+
+
 type AgentEvent = Annotated[
     StateChanged
     | ModelEventObserved
     | ToolExecutionStarted
     | ToolExecutionFinished
-    | BudgetUpdated,
+    | BudgetUpdated
+    | HookEvaluated,
     Field(discriminator="type"),
 ]

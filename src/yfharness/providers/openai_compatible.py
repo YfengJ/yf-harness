@@ -13,6 +13,7 @@ from typing import Any
 import httpx
 
 from yfharness.config.models import ProviderSettings
+from yfharness.core.attachments import image_data_url
 from yfharness.core.events import (
     ErrorEvent,
     FinishEvent,
@@ -27,6 +28,7 @@ from yfharness.core.events import (
 )
 from yfharness.core.exceptions import ProviderError
 from yfharness.core.models import (
+    AttachmentTransfer,
     ChatRequest,
     ContentPartType,
     HealthStatus,
@@ -123,7 +125,10 @@ class OpenAICompatibleProvider(Provider):
     def _build_payload(self, request: ChatRequest) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "model": request.model.model,
-            "messages": [self._message_payload(message) for message in request.messages],
+            "messages": [
+                self._message_payload(message, supports_images=request.model.supports_image_input)
+                for message in request.messages
+            ],
             "stream": request.stream,
         }
         if request.temperature is not None:
@@ -148,12 +153,32 @@ class OpenAICompatibleProvider(Provider):
         return payload
 
     @staticmethod
-    def _message_payload(message: Message) -> dict[str, Any]:
+    def _message_payload(message: Message, *, supports_images: bool) -> dict[str, Any]:
+        remote_images = [
+            part
+            for part in message.content
+            if part.type is ContentPartType.IMAGE
+            and part.transfer is AttachmentTransfer.REMOTE_MODEL
+        ]
+        if remote_images and not supports_images:
+            raise ProviderError(
+                "当前模型未声明图片输入能力",
+                code="image_input_not_supported",
+            )
+        text = "".join(part.text for part in message.content if part.type is ContentPartType.TEXT)
+        content: str | list[dict[str, Any]] = text
+        if remote_images:
+            content = [{"type": "text", "text": text}]
+            content.extend(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": image_data_url(part)},
+                }
+                for part in remote_images
+            )
         value: dict[str, Any] = {
             "role": message.role.value,
-            "content": "".join(
-                part.text for part in message.content if part.type is ContentPartType.TEXT
-            ),
+            "content": content,
         }
         if message.name:
             value["name"] = message.name

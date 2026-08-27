@@ -8,6 +8,14 @@ import pytest
 
 from yfharness.core.exceptions import PolicyDeniedError, ToolExecutionError
 from yfharness.core.models import ApprovalDecision, ApprovalRequest, ToolCall, ToolRiskLevel
+from yfharness.core.policies import ApprovalPolicy
+from yfharness.core.workflows import (
+    HookAction,
+    HookEvaluation,
+    HookEvent,
+    HookRule,
+    WorkflowProfile,
+)
 from yfharness.tools.base import ToolContext
 from yfharness.tools.changes import ChangeJournal
 from yfharness.tools.patch import create_patch
@@ -222,3 +230,114 @@ async def test_network_command_is_critical_and_requires_approval(tmp_path: Path)
             )
         )
     assert seen[0].risk_level is ToolRiskLevel.CRITICAL
+
+
+@pytest.mark.asyncio
+async def test_workflow_filters_definitions_and_rechecks_execution(tmp_path: Path) -> None:
+    profile = WorkflowProfile(
+        id="read-only",
+        label="Read only",
+        allowed_tools=["read_file", "git_status"],
+    )
+    executor = ToolExecutor(builtin_tools(), make_context(tmp_path), workflow=profile)
+
+    assert [item.name for item in executor.definitions()] == ["git_status", "read_file"]
+    with pytest.raises(PolicyDeniedError, match="未向模型开放"):
+        await executor.execute(
+            ToolCall(
+                id="hidden-write",
+                name="write_file",
+                arguments={"path": "blocked.txt", "content": "blocked"},
+            )
+        )
+    assert not (tmp_path / "blocked.txt").exists()
+
+
+@pytest.mark.asyncio
+async def test_hook_allow_cannot_override_base_approval(tmp_path: Path) -> None:
+    observed: list[HookEvaluation] = []
+
+    async def observe(evaluation: HookEvaluation) -> None:
+        observed.append(evaluation)
+
+    profile = WorkflowProfile(
+        id="cannot-expand",
+        label="Cannot expand",
+        hooks=[
+            HookRule(
+                id="allow-write",
+                event=HookEvent.PRE_TOOL_USE,
+                tools=["write_file"],
+                action=HookAction.ALLOW,
+            )
+        ],
+    )
+    executor = ToolExecutor(
+        builtin_tools(),
+        make_context(tmp_path),
+        policy=ApprovalPolicy.ALWAYS_ASK,
+        workflow=profile,
+        hook_sink=observe,
+    )
+
+    with pytest.raises(PolicyDeniedError, match="没有审批处理器"):
+        await executor.execute(
+            ToolCall(
+                id="still-ask",
+                name="write_file",
+                arguments={"path": "blocked.txt", "content": "blocked"},
+            )
+        )
+    assert observed[0].action is HookAction.ALLOW
+    assert not (tmp_path / "blocked.txt").exists()
+
+
+@pytest.mark.asyncio
+async def test_hook_can_escalate_read_and_observe_success(tmp_path: Path) -> None:
+    (tmp_path / "file.txt").write_text("hello", encoding="utf-8")
+    approvals: list[ApprovalRequest] = []
+    observed: list[HookEvaluation] = []
+
+    async def approve(request: ApprovalRequest) -> ApprovalDecision:
+        approvals.append(request)
+        return ApprovalDecision.ALLOW_ONCE
+
+    async def observe(evaluation: HookEvaluation) -> None:
+        observed.append(evaluation)
+
+    profile = WorkflowProfile(
+        id="audited-read",
+        label="Audited read",
+        hooks=[
+            HookRule(
+                id="ask-read",
+                event=HookEvent.PRE_TOOL_USE,
+                tools=["read_file"],
+                action=HookAction.ASK,
+            ),
+            HookRule(
+                id="record-read",
+                event=HookEvent.POST_TOOL_USE,
+                tools=["read_file"],
+                message="read completed",
+            ),
+        ],
+    )
+    executor = ToolExecutor(
+        builtin_tools(),
+        make_context(tmp_path),
+        approval_handler=approve,
+        workflow=profile,
+        hook_sink=observe,
+    )
+
+    result = await executor.execute(
+        ToolCall(id="audited", name="read_file", arguments={"path": "file.txt"})
+    )
+
+    assert result.success
+    assert len(approvals) == 1
+    assert [item.event for item in observed] == [
+        HookEvent.PRE_TOOL_USE,
+        HookEvent.POST_TOOL_USE,
+    ]
