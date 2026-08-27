@@ -38,9 +38,9 @@ def test_instruction_priority_attachments_and_auto_file(
     (workspace / "CLAUDE.md").write_text("claude-memory", encoding="utf-8")
     (workspace / "AGENTS.md").write_text("codex-rules", encoding="utf-8")
     (workspace / ".cursor" / "rules").mkdir(parents=True)
-    (workspace / ".cursor" / "rules" / "python.mdc").write_text(
-        "---\ndescription: Python conventions\nglobs: '*.py'\nalwaysApply: false\n---\nuse-types",
-        encoding="utf-8",
+    (workspace / ".cursor" / "rules" / "python.mdc").write_bytes(
+        b"---\r\ndescription: Python conventions\r\nglobs: '*.py'\r\n"
+        b"alwaysApply: false\r\n---\r\nuse-types"
     )
     monkeypatch.setenv("YFH_CONFIG_DIR", str(config))
     builder = ContextBuilder(workspace, lambda text: max(1, len(text) // 4))

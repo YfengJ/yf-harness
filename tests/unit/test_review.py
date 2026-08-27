@@ -21,7 +21,7 @@ async def test_review_lists_diff_and_restores_when_file_is_unchanged(tmp_path: P
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     path = workspace / "example.txt"
-    path.write_text("after\n", encoding="utf-8")
+    path.write_bytes(b"after\n")
     record_id = await changes.record(
         path="example.txt",
         before=b"before\n",
@@ -39,7 +39,7 @@ async def test_review_lists_diff_and_restores_when_file_is_unchanged(tmp_path: P
     assert "-before" in items[0].diff
     assert "+after" in items[0].diff
     assert message == "已恢复文件 example.txt"
-    assert path.read_text(encoding="utf-8") == "before\n"
+    assert path.read_bytes() == b"before\n"
     stored = await changes.get(record_id)
     assert stored is not None
     assert stored.undone_at is not None
@@ -59,7 +59,7 @@ async def test_restore_refuses_to_overwrite_later_user_edit(tmp_path: Path) -> N
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     path = workspace / "example.txt"
-    path.write_text("user edit\n", encoding="utf-8")
+    path.write_bytes(b"user edit\n")
     record_id = await changes.record(
         path="example.txt",
         before=b"before\n",
@@ -72,4 +72,4 @@ async def test_restore_refuses_to_overwrite_later_user_edit(tmp_path: Path) -> N
     with pytest.raises(ToolExecutionError, match="拒绝覆盖"):
         await review.restore(record_id)
 
-    assert path.read_text(encoding="utf-8") == "user edit\n"
+    assert path.read_bytes() == b"user edit\n"

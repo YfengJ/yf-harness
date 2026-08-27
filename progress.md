@@ -127,6 +127,7 @@
 | 2026-08-27 | 0.4.0 Eval/构建 | 20/20 Eval；sdist/wheel 成功；wheel 已确认包含规则、索引、审查与 QML 资源 |
 | 2026-08-27 | 0.4.0 macOS App | 491 MB Bundle 生成；ad-hoc codesign、Plist 0.4.0、Bundle 可执行截图 2880×1650 全部通过 |
 | 2026-08-27 | 阶段 12 Change Radar | P1/30，无 blocking gaps；依赖、运行时、测试与文档风险均有直接验证证据 |
+| 2026-08-27 | 0.4.0 首轮 CI | 6/8 Job 通过；Windows 3.12/3.13 同时发现 CRLF frontmatter 解析与测试快照换行差异，已修复并全量 112 passed |
 
 ## 错误与修复
 

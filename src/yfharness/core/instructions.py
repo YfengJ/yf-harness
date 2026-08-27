@@ -177,6 +177,7 @@ class InstructionResolver:
 
 
 def _split_frontmatter(content: str) -> tuple[dict[str, str], str]:
+    content = content.replace("\r\n", "\n").replace("\r", "\n")
     if not content.startswith("---\n"):
         return {}, content
     end = content.find("\n---\n", 4)

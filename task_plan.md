@@ -174,6 +174,7 @@
 | 桌面上下文 Token 从宽泛 payload 直接 `int()` 未通过严格 mypy | 1 | 增加拒绝 bool/非法字符串的 `_safe_int` 收窄函数 |
 | 0.4 全量发布门有四个文件不符合 Ruff formatter 输出 | 1 | 对精确文件运行项目格式器后重新执行全部静态、类型与覆盖率门 |
 | 桌面 mypy 首次把目录作为参数时因项目 exclude 规则未发现文件 | 1 | 改为显式列出三个桌面 Python 源文件，保持可选 GUI 与核心门禁分层 |
+| 0.4 首轮 Windows CI 的 Cursor frontmatter 与审查快照测试受 CRLF 文本转换影响 | 1 | 解析器先归一化 frontmatter 换行；字节级冲突测试改用 `write_bytes`，不放宽生产哈希比较 |
 
 ## 备注
 - `PLAN.md` 是面向项目用户的阶段与验收计划；本文件是技能要求的持续工作记忆。
