@@ -2,8 +2,8 @@
 
 ## 当前状态
 
-- 当前阶段：阶段 13（可扩展工作流与性能纵深，本地完成）
-- 整体状态：0.5.0 已完成本地发布门与 macOS App 验证，正在推送私密 GitHub 并等待 CI
+- 当前阶段：阶段 13（可扩展工作流与性能纵深，完成）
+- 整体状态：0.5.0 已发布到私密 GitHub，本地发布门、macOS App 与 8 Job 跨平台 CI 全绿
 - 初始仓库：空目录、非 Git 仓库
 - 当前风险：P1（安全边界、子进程、持久化、CLI/TUI 公共契约）
 
@@ -139,6 +139,7 @@
 | 2026-08-28 | 0.5.0 Change Radar | P1/50，无 blocking gaps；配置、依赖、上传与工具执行风险均有直接验证证据 |
 | 2026-08-28 | 0.5.0 macOS App | 235 MB Bundle；无 QtWebEngine 等顶层重型模块；ad-hoc codesign、Plist 0.5.0、LaunchServices smoke 与真实截图通过 |
 | 2026-08-28 | 项目索引性能 | 140 文件、100 次选择由 662.51 ms 降至 513.28 ms；冷索引 9.26 ms |
+| 2026-08-28 | 最终 0.5.0 CI `33098549805` | minimal-install、desktop-smoke 与 Linux/macOS/Windows × Python 3.12/3.13 全部通过 |
 
 ## 错误与修复
 
