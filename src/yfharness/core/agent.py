@@ -48,6 +48,7 @@ from yfharness.core.models import (
 )
 from yfharness.core.policies import AgentMode
 from yfharness.core.prompts import build_system_prompt
+from yfharness.core.skills import SkillInvocation
 from yfharness.core.tool_protocol import parse_fallback_tool_calls
 from yfharness.providers.base import Provider
 from yfharness.tools.registry import ToolExecutor
@@ -150,6 +151,7 @@ class AgentRunner:
         history: list[Message] | None = None,
         existing_run: AgentRun | None = None,
         attachments: list[ContentPart] | None = None,
+        skill: SkillInvocation | None = None,
     ) -> AgentRunResult:
         if not user_input.strip():
             raise ValueError("user_input must not be empty")
@@ -168,11 +170,14 @@ class AgentRunner:
                 tools=definitions,
                 model=self.model,
                 native_tools=native_tools,
+                skill=skill,
             )
             messages = snapshot.messages
             initial_compacted = snapshot.compacted
         else:
             system_prompt = build_system_prompt(self.mode, definitions, native_tools=native_tools)
+            if skill is not None:
+                system_prompt += "\n\n" + skill.render()
             messages = list(history or [])
             if self.model.supports_system_message:
                 messages.insert(0, Message.text(MessageRole.SYSTEM, system_prompt))

@@ -397,6 +397,14 @@ ApplicationWindow {
                         }
                     }
                 }
+                QuietButton {
+                    Layout.fillWidth: true
+                    Layout.topMargin: 10
+                    label: "打开项目文件夹"
+                    glyph: "⌁"
+                    enabled: controller ? !controller.busy : false
+                    onClicked: projectFolderDialog.open()
+                }
             }
         }
 
@@ -692,6 +700,120 @@ ApplicationWindow {
                 }
 
                 Rectangle {
+                    id: skillPalette
+                    visible: promptInput.text.trim().startsWith("$")
+                             && promptInput.text.indexOf(" ") < 0
+                             && controller && controller.skillCount > 0
+                    Layout.fillWidth: true
+                    Layout.leftMargin: Math.max(26, (workspace.width - 900) / 2)
+                    Layout.rightMargin: Math.max(26, (workspace.width - 900) / 2)
+                    Layout.preferredHeight: visible ? Math.min(238, 48 + skillList.count * 54) : 0
+                    radius: 13
+                    color: "#171D23"
+                    border.width: 1
+                    border.color: "#3B3329"
+                    clip: true
+
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: 8
+                        spacing: 4
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Layout.leftMargin: 8
+                            Layout.rightMargin: 8
+                            Layout.preferredHeight: 28
+                            Text {
+                                text: "项目技能"
+                                color: root.textPrimary
+                                font.pixelSize: 11
+                                font.weight: Font.DemiBold
+                            }
+                            Text {
+                                text: "显式调用 · 不自动执行脚本"
+                                color: root.textMuted
+                                font.pixelSize: 9
+                            }
+                            Item { Layout.fillWidth: true }
+                            Text {
+                                text: "↑↓ 选择  ↵ 使用"
+                                color: root.textMuted
+                                font.pixelSize: 9
+                            }
+                        }
+                        ListView {
+                            id: skillList
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            clip: true
+                            spacing: 3
+                            currentIndex: 0
+                            model: controller ? controller.skillModel : null
+                            delegate: Rectangle {
+                                required property int index
+                                required property string skillId
+                                required property string description
+                                required property string source
+                                width: skillList.width
+                                height: 51
+                                radius: 8
+                                color: skillList.currentIndex === index || skillMouse.containsMouse
+                                       ? "#242B31" : "transparent"
+                                RowLayout {
+                                    anchors.fill: parent
+                                    anchors.leftMargin: 10
+                                    anchors.rightMargin: 10
+                                    spacing: 11
+                                    Rectangle {
+                                        Layout.preferredWidth: 58
+                                        Layout.preferredHeight: 23
+                                        radius: 6
+                                        color: "#30291F"
+                                        Text {
+                                            anchors.centerIn: parent
+                                            text: source.toUpperCase()
+                                            color: root.accent
+                                            font.pixelSize: 8
+                                            font.weight: Font.DemiBold
+                                        }
+                                    }
+                                    ColumnLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 2
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: "$" + skillId
+                                            color: root.textPrimary
+                                            font.pixelSize: 11
+                                            font.weight: Font.DemiBold
+                                            elide: Text.ElideRight
+                                        }
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: description
+                                            color: root.textMuted
+                                            font.pixelSize: 9
+                                            elide: Text.ElideRight
+                                        }
+                                    }
+                                }
+                                MouseArea {
+                                    id: skillMouse
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: {
+                                        promptInput.text = "$" + skillId + " "
+                                        promptInput.cursorPosition = promptInput.length
+                                        promptInput.forceActiveFocus()
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Rectangle {
                     Layout.fillWidth: true
                     Layout.leftMargin: Math.max(26, (workspace.width - 900) / 2)
                     Layout.rightMargin: Math.max(26, (workspace.width - 900) / 2)
@@ -718,10 +840,34 @@ ApplicationWindow {
                             font.pixelSize: 14
                             wrapMode: TextEdit.Wrap
                             background: Item { }
+                            onTextChanged: {
+                                if (controller && text.trim().startsWith("$")
+                                        && text.indexOf(" ") < 0) {
+                                    controller.filterSkills(text)
+                                    skillList.currentIndex = 0
+                                }
+                            }
                             Keys.onPressed: event => {
                                 var modifier = (event.modifiers & Qt.ControlModifier) || (event.modifiers & Qt.MetaModifier)
                                 if (modifier && (event.key === Qt.Key_Return || event.key === Qt.Key_Enter)) {
                                     root.sendCurrentPrompt()
+                                    event.accepted = true
+                                } else if (skillPalette.visible && event.key === Qt.Key_Down) {
+                                    skillList.currentIndex = Math.min(skillList.count - 1,
+                                                                      skillList.currentIndex + 1)
+                                    event.accepted = true
+                                } else if (skillPalette.visible && event.key === Qt.Key_Up) {
+                                    skillList.currentIndex = Math.max(0, skillList.currentIndex - 1)
+                                    event.accepted = true
+                                } else if (skillPalette.visible
+                                           && (event.key === Qt.Key_Tab
+                                               || event.key === Qt.Key_Return
+                                               || event.key === Qt.Key_Enter)) {
+                                    var selectedSkill = controller.skillIdAt(skillList.currentIndex)
+                                    if (selectedSkill.length > 0) {
+                                        text = "$" + selectedSkill + " "
+                                        cursorPosition = length
+                                    }
                                     event.accepted = true
                                 }
                             }
@@ -1061,6 +1207,7 @@ ApplicationWindow {
                             delegate: Rectangle {
                                 id: changeRow
                                 required property string changeId
+                                required property string runId
                                 required property string path
                                 required property string summary
                                 required property string diff
@@ -1069,7 +1216,7 @@ ApplicationWindow {
                                 required property string created
                                 property bool expanded: false
                                 width: ListView.view.width
-                                height: expanded ? 278 : 88
+                                height: expanded ? 324 : 88
                                 color: "transparent"
                                 ColumnLayout {
                                     anchors.fill: parent
@@ -1083,6 +1230,13 @@ ApplicationWindow {
                                         Text { text: changeRow.expanded ? "⌃" : "⌄"; color: root.textMuted; font.pixelSize: 12 }
                                     }
                                     Text { Layout.fillWidth: true; text: changeRow.path; color: root.textPrimary; font.pixelSize: 10; elide: Text.ElideMiddle }
+                                    Text {
+                                        visible: changeRow.expanded && changeRow.runId.length > 0
+                                        text: "RUN " + changeRow.runId.slice(0, 8)
+                                        color: root.textMuted
+                                        font.pixelSize: 8
+                                        font.letterSpacing: 0.7
+                                    }
                                     Rectangle {
                                         visible: changeRow.expanded
                                         Layout.fillWidth: true
@@ -1110,6 +1264,14 @@ ApplicationWindow {
                                         glyph: "↶"
                                         enabled: changeRow.canRestore && !(controller && controller.busy)
                                         onClicked: controller.restoreChange(changeRow.changeId)
+                                    }
+                                    QuietButton {
+                                        visible: changeRow.expanded && changeRow.runId.length > 0
+                                        Layout.fillWidth: true
+                                        label: "撤销本次运行全部变更"
+                                        glyph: "↶"
+                                        enabled: changeRow.canRestore && !(controller && controller.busy)
+                                        onClicked: controller.restoreRun(changeRow.runId)
                                     }
                                 }
                                 MouseArea {
@@ -1149,7 +1311,7 @@ ApplicationWindow {
                 Text {
                     Layout.fillWidth: true
                     Layout.topMargin: 10
-                    text: "YF-Harness 0.5 · Local first"
+                    text: "YF-Harness 0.6 · Local first"
                     color: root.textMuted
                     font.pixelSize: 9
                     horizontalAlignment: Text.AlignHCenter
@@ -1174,6 +1336,12 @@ ApplicationWindow {
         title: "选择项目内的图片"
         nameFilters: ["Images (*.png *.jpg *.jpeg *.gif *.webp)"]
         onAccepted: controller.addImage(selectedFile.toString(), sendImageSwitch.checked)
+    }
+
+    FolderDialog {
+        id: projectFolderDialog
+        title: "选择 YF-Harness 项目文件夹"
+        onAccepted: controller.setWorkspace(selectedFolder.toString())
     }
 
     Dialog {

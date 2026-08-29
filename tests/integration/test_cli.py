@@ -116,6 +116,38 @@ def test_run_uses_selected_workflow_and_rejects_unknown_name() -> None:
     assert "unknown workflow" in missing.output
 
 
+def test_skills_list_show_and_explicit_run(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    skill = tmp_path / ".agents" / "skills" / "review" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text(
+        "---\nname: review\ndescription: Review a target\n---\nReview $ARGUMENTS",
+        encoding="utf-8",
+    )
+    env = {
+        "YFH_CONFIG_DIR": str(tmp_path / "config"),
+        "YFH_DATA_DIR": str(tmp_path / "data"),
+    }
+
+    listed = runner.invoke(app, ["skills", "list"], env=env)
+    shown = runner.invoke(app, ["skills", "show", "review"], env=env)
+    executed = runner.invoke(
+        app,
+        ["run", "--no-save", "--output", "json", "--skill", "review", "src/app.py"],
+        env=env,
+    )
+
+    assert listed.exit_code == 0 and "codex:review" in listed.output
+    assert shown.exit_code == 0 and "Review" in shown.output
+    assert executed.exit_code == 0, executed.output
+    payload = json.loads(executed.output)
+    assert payload["skill"]["id"] == "codex:review"
+    assert any(item["kind"] == "skill" for item in payload["context"]["sources"])
+
+
 def test_run_reports_local_image_without_remote_upload(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -47,6 +47,7 @@ from yfharness.core.models import (
     RunStatus,
 )
 from yfharness.core.policies import AgentMode, ApprovalPolicy
+from yfharness.core.skills import SkillCatalog, SkillInvocation, parse_skill_reference
 from yfharness.core.workflows import HookEvaluation
 from yfharness.diagnostics import run_doctor
 from yfharness.integrations.mcp import register_mcp_tools
@@ -123,6 +124,7 @@ class YFHarnessApp(App[None]):
         self.guard = WorkspaceGuard(self.config.workspace)
         self.change_journal = ChangeJournal(self.guard)
         self.context_builder = ContextBuilder(self.guard.root, lambda text: max(1, len(text) // 4))
+        self.skill_catalog = SkillCatalog(self.guard.root)
         self._stream_text = ""
         self._stream_widget: Static | None = None
         self.auto_scroll = True
@@ -168,7 +170,7 @@ class YFHarnessApp(App[None]):
     async def reload_sessions(self, query: str | None = None) -> None:
         list_view = self.query_one("#sessions", ListView)
         await list_view.clear()
-        for session in await self.sessions.list(query=query):
+        for session in await self.sessions.list(query=query, workspace=self.guard.root):
             await list_view.append(SessionItem(session))
 
     async def on_input_changed(self, event: Input.Changed) -> None:
@@ -181,6 +183,14 @@ class YFHarnessApp(App[None]):
         value = event.text_area.text
         if value.lstrip().startswith("/"):
             suggestions = command_suggestions(value.split(maxsplit=1)[0])[:5]
+            self.query_one("#suggestions", Static).update("\n".join(suggestions))
+        elif value.lstrip().startswith("$"):
+            prefix = value.strip()[1:].split(maxsplit=1)[0].lower()
+            suggestions = [
+                f"${item.id} — {item.description}"
+                for item in self.skill_catalog.discover()
+                if item.id.lower().startswith(prefix) or item.name.lower().startswith(prefix)
+            ][:5]
             self.query_one("#suggestions", Static).update("\n".join(suggestions))
         else:
             self.query_one("#suggestions", Static).update("")
@@ -234,17 +244,40 @@ class YFHarnessApp(App[None]):
         self.input_history.append(value)
         self.history_index = len(self.input_history)
         self.last_prompt = value
-        self.run_prompt(value)
+        try:
+            skill_reference = parse_skill_reference(value)
+        except ValueError as exc:
+            self.notify(str(exc), severity="error")
+            return
+        if skill_reference is None:
+            self.run_prompt(value)
+            return
+        skill_name, skill_arguments = skill_reference
+        try:
+            self.skill_catalog.resolve(skill_name)
+        except ValueError as exc:
+            self.notify(str(exc), severity="error")
+            return
+        self.run_prompt(value, skill_name, skill_arguments)
 
     @work(exclusive=True, group="agent")
-    async def run_prompt(self, prompt: str) -> None:
+    async def run_prompt(
+        self,
+        prompt: str,
+        skill_name: str | None = None,
+        skill_arguments: str = "",
+    ) -> None:
         try:
+            skill: SkillInvocation | None = None
+            if skill_name is not None:
+                skill = self.skill_catalog.invoke(skill_name, skill_arguments)
             if self.current_session_id is None:
                 session = await self.sessions.create(
                     title=prompt.splitlines()[0][:80],
                     provider=self.provider_name,
                     model=self.model_name,
                     mode=self.mode.value,
+                    workspace=self.guard.root,
                 )
                 self.current_session_id = session.id
             session_id = self.current_session_id
@@ -313,6 +346,7 @@ class YFHarnessApp(App[None]):
                 session_id=session_id,
                 history=history,
                 existing_run=run_record,
+                skill=skill,
             )
             if not model.supports_native_tools and self._stream_widget is not None:
                 self._stream_widget.update(result.final_text)
@@ -336,6 +370,7 @@ class YFHarnessApp(App[None]):
                     "task": prompt,
                     "mode": self.mode.value,
                     "workflow": self.workflow_name,
+                    "skill": skill.summary.model_dump(mode="json") if skill is not None else None,
                 },
                 events=[event.model_dump(mode="json") for event in self._observed_events],
                 duration=duration,
@@ -354,7 +389,7 @@ class YFHarnessApp(App[None]):
                 snapshot = self.context_builder.last_snapshot
                 await self.traces.record_context(
                     run_id=run_record.run_id,
-                    snapshot=snapshot.model_dump(mode="json"),
+                    snapshot=snapshot.trace_payload(),
                     estimated_tokens=snapshot.estimated_tokens,
                 )
             calls = {
@@ -532,6 +567,32 @@ class YFHarnessApp(App[None]):
         ]
         self.mount_markdown("## 可用工具\n" + "\n".join(lines))
 
+    def command_skills(self, _: tuple[str, ...]) -> None:
+        items = self.skill_catalog.discover()
+        if not items:
+            self.mount_markdown("## 项目技能\n当前工作区没有发现项目技能。")
+            return
+        lines = [
+            f"- `${item.id}` — {item.description}  \n  `{item.path}`"
+            for item in items
+            if item.user_invocable
+        ]
+        self.mount_markdown("## 项目技能\n" + "\n".join(lines))
+
+    def command_skill(self, arguments: tuple[str, ...]) -> None:
+        if not arguments:
+            self.notify("用法: /skill <source:name> [任务参数]", severity="warning")
+            return
+        name = arguments[0].lstrip("$")
+        task = " ".join(arguments[1:])
+        try:
+            summary = self.skill_catalog.resolve(name)
+        except ValueError as exc:
+            self.notify(str(exc), severity="error")
+            return
+        prompt = task or f"执行项目技能 {summary.id}"
+        self.run_prompt(prompt, summary.id, task)
+
     def command_permissions(self, arguments: tuple[str, ...]) -> None:
         if not arguments:
             self.notify(f"当前审批策略: {self.policy.value}")
@@ -658,6 +719,7 @@ class YFHarnessApp(App[None]):
             provider=self.provider_name,
             model=self.model_name,
             mode=self.mode.value,
+            workspace=self.guard.root,
         )
         self.current_session_id = session.id
         await self.query_one("#conversation", VerticalScroll).remove_children()

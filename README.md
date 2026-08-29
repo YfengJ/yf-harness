@@ -28,6 +28,8 @@ LlamaIndex 和 AutoGen 通过可选、惰性加载的适配层接入，既保留
 - 统一发现 `AGENTS.md`、`CLAUDE.md`、Cursor Rules 与 `.yfh` 指令，并显示实际上下文来源。
 - Git 感知的本地项目索引，按路径、内容和工作区状态自动选择相关文件，全程不上传代码。
 - 逐文件 Diff 审查与持久化检查点；撤销前校验修改后哈希，拒绝覆盖后续人工编辑。
+- Codex / Claude Code / Cursor 项目技能统一发现；桌面输入 `$` 即可搜索和显式调用。
+- 整次 Agent 运行可原子式回退；任一文件存在后续编辑时，整组撤销不会部分生效。
 - Textual 三栏 TUI：流式 Markdown、会话、工具折叠、审批、设置、诊断和响应式布局。
 - 项目指令、手动/自动文件上下文、Token 预算与八字段结构化压缩。
 - 轮转文本/JSONL 日志、Trace、只读 Replay 和 20 类离线 Eval。
@@ -115,6 +117,23 @@ open dist/YF-Harness.app
 签名，适合本机使用；发给其他人之前仍需 Apple Developer ID 签名和 notarization。完整说明见
 [`docs/DESKTOP_APP.md`](docs/DESKTOP_APP.md)。
 
+如果本机已经有此仓库构建好的 App，最短启动方式就是在 Finder 打开项目的 `dist` 目录，双击
+`YF-Harness.app`。不需要先启动终端，也不需要 API Key；默认 MockProvider 可以直接体验完整界面。
+首次打开后点击左下角“打开项目文件夹”；App 会在本机配置目录记住这个选择，下次双击自动恢复。
+
+## 项目技能与 `$` 命令面板
+
+桌面输入框键入 `$` 会打开技能面板，支持键盘上下选择、Enter/Tab 插入，也可鼠标点击。当前兼容：
+
+- `.yfh/skills/*/SKILL.md`
+- `.agents/skills/*/SKILL.md`
+- `.claude/skills/*/SKILL.md` 与 `.claude/commands/*.md`
+- `.cursor/commands/*.md`
+
+同名技能必须使用完整的 `source:name`。完整正文只在用户显式选择后进入当次上下文；脚本与资源不会
+自动执行，`allowed-tools` 也不会授予权限。CLI 可用 `yfh skills list`、`yfh skills show <name>` 和
+`yfh run --skill <name> "任务"`。详细边界见 [`docs/PROJECT_SKILLS.md`](docs/PROJECT_SKILLS.md)。
+
 ## 配置 DeepSeek 或其他兼容服务
 
 复制 [`examples/config.example.toml`](examples/config.example.toml) 到 `yfh config path` 输出的位置，
@@ -178,6 +197,8 @@ yfh tools list
 yfh workflows list
 yfh mcp list
 yfh plugins list
+yfh skills list
+yfh run --skill codex:review-changes "检查当前改动"
 yfh doctor --no-network
 yfh eval
 yfh replay <run_id>              # 默认只读，不执行工具

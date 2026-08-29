@@ -13,6 +13,7 @@ class SessionRecord(DomainModel):
     provider: str
     model: str
     mode: str
+    workspace: str | None = None
     archived: bool
     created_at: datetime
     updated_at: datetime

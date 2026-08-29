@@ -28,3 +28,10 @@ def test_unknown_command_suggests_nearest_name() -> None:
 
 def test_command_completion_filters_prefix() -> None:
     assert command_suggestions("/pro") == ["/provider — 查看或切换 Provider"]
+
+
+def test_skill_commands_are_discoverable() -> None:
+    assert command_suggestions("/skill") == [
+        "/skills — 列出项目技能",
+        "/skill — 显式运行项目技能",
+    ]

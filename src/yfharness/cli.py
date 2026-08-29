@@ -15,6 +15,7 @@ import typer
 
 from yfharness import __version__
 from yfharness.config.loader import load_config
+from yfharness.config.models import AppConfig
 from yfharness.config.paths import config_file, database_file
 from yfharness.core.agent import AgentLimits, AgentRunner
 from yfharness.core.agent_events import (
@@ -38,6 +39,7 @@ from yfharness.core.models import (
 )
 from yfharness.core.plugins import discover_plugins
 from yfharness.core.policies import AgentMode, ApprovalPolicy
+from yfharness.core.skills import SkillCatalog, parse_skill_reference
 from yfharness.core.workflows import HookEvaluation
 from yfharness.diagnostics import run_doctor
 from yfharness.integrations.mcp import register_mcp_tools
@@ -58,7 +60,7 @@ from yfharness.tools.security import WorkspaceGuard
 
 app = typer.Typer(
     name="yfh",
-    help="YF-Harness：本地优先、终端优先的 LLM Agent Harness。",
+    help="YF-Harness：本地优先、桌面优先的 LLM Agent Harness。",
     no_args_is_help=True,
 )
 providers_app = typer.Typer(help="查看和诊断 Provider。")
@@ -69,6 +71,7 @@ tools_app = typer.Typer(help="查看可用工具。")
 workflows_app = typer.Typer(help="查看可用工作流配置。")
 mcp_app = typer.Typer(help="发现显式启用的 MCP stdio 工具。")
 plugins_app = typer.Typer(help="静态发现项目插件声明，不自动激活。")
+skills_app = typer.Typer(help="发现并显式调用工作区项目技能。")
 frameworks_app = typer.Typer(help="发现、诊断和运行可选 Agent 框架。")
 app.add_typer(providers_app, name="providers")
 app.add_typer(config_app, name="config")
@@ -78,6 +81,7 @@ app.add_typer(tools_app, name="tools")
 app.add_typer(workflows_app, name="workflows")
 app.add_typer(mcp_app, name="mcp")
 app.add_typer(plugins_app, name="plugins")
+app.add_typer(skills_app, name="skills")
 app.add_typer(frameworks_app, name="frameworks")
 
 
@@ -111,6 +115,10 @@ def run(
     session: Annotated[str | None, typer.Option("--session", help="继续已有会话 ID。")] = None,
     save: Annotated[bool, typer.Option("--save/--no-save", help="是否保存会话和运行记录。")] = True,
     workflow: Annotated[str | None, typer.Option("--workflow", help="工作流配置名称。")] = None,
+    skill: Annotated[
+        str | None,
+        typer.Option("--skill", help="显式启用项目技能；同名时使用 source:name。"),
+    ] = None,
     image: Annotated[
         list[Path] | None,
         typer.Option("--image", exists=True, dir_okay=False, help="附加图片(可重复)。"),
@@ -161,6 +169,7 @@ def run(
                 mode=mode,
                 permissions=permissions,
                 workflow_name=workflow,
+                skill_name=skill,
                 image_paths=image,
                 send_images=send_images,
             )
@@ -319,14 +328,17 @@ async def _run_once(
     mode: AgentMode | None = None,
     permissions: ApprovalPolicy | None = None,
     workflow_name: str | None = None,
+    skill_name: str | None = None,
+    skill_arguments: str | None = None,
     image_paths: list[Path] | None = None,
     send_images: bool = False,
     attachment_parts: list[ContentPart] | None = None,
     event_sink: Callable[[AgentEvent], Awaitable[None]] | None = None,
     approval_handler: Callable[[ApprovalRequest], Awaitable[ApprovalDecision]] | None = None,
     runner_sink: Callable[[AgentRunner], None] | None = None,
+    config_override: AppConfig | None = None,
 ) -> dict[str, object]:
-    config = load_config()
+    config = config_override or load_config()
     workflow = config.workflow(workflow_name)
     mode = mode or workflow.mode
     permissions = permissions or workflow.permissions
@@ -343,6 +355,25 @@ async def _run_once(
     trace_repo: TraceRepository | None = None
     run_record = None
     history = []
+    guard = WorkspaceGuard(config.workspace)
+    changes = ChangeJournal(guard)
+    tool_registry = builtin_tools()
+    mcp_tools = await register_mcp_tools(tool_registry, config, guard.root)
+    attachments = list(attachment_parts or [])
+    attachments.extend(
+        prepare_image(path, guard, send_to_model=send_images) for path in image_paths or []
+    )
+    skill_reference = parse_skill_reference(prompt) if skill_name is None else None
+    if skill_reference is not None:
+        skill_name, parsed_arguments = skill_reference
+        if skill_arguments is None:
+            skill_arguments = parsed_arguments
+    effective_skill_arguments = prompt if skill_arguments is None else skill_arguments
+    skill_invocation = (
+        SkillCatalog(config.workspace).invoke(skill_name, effective_skill_arguments)
+        if skill_name is not None
+        else None
+    )
     if session_id is not None and not save:
         raise ValueError("--session requires --save")
     if save:
@@ -359,6 +390,7 @@ async def _run_once(
                 provider=provider_name,
                 model=model_name,
                 mode=mode.value,
+                workspace=config.workspace,
             )
             session_id = session_record.id
         else:
@@ -367,19 +399,14 @@ async def _run_once(
                 raise KeyError(f"session not found: {session_id}")
             if (existing_session.provider, existing_session.model) != (provider_name, model_name):
                 raise ValueError("existing session provider/model does not match requested values")
+            if existing_session.workspace is not None and (
+                existing_session.workspace != str(guard.root)
+            ):
+                raise ValueError("existing session belongs to a different workspace")
             history = await session_repo.messages(session_id)
         run_record = await run_repo.create(session_id)
     else:
         session_id = "ephemeral"
-
-    guard = WorkspaceGuard(config.workspace)
-    changes = ChangeJournal(guard)
-    tool_registry = builtin_tools()
-    mcp_tools = await register_mcp_tools(tool_registry, config, guard.root)
-    attachments = list(attachment_parts or [])
-    attachments.extend(
-        prepare_image(path, guard, send_to_model=send_images) for path in image_paths or []
-    )
 
     async def record_change(entry: ChangeEntry) -> None:
         if change_repo is None or run_record is None:
@@ -483,6 +510,7 @@ async def _run_once(
             history=history,
             existing_run=run_record,
             attachments=attachments,
+            skill=skill_invocation,
         )
         logger.info(
             "agent run finished",
@@ -522,6 +550,9 @@ async def _run_once(
                 "task": prompt,
                 "mode": mode.value,
                 "workflow": workflow.id,
+                "skill": skill_invocation.summary.model_dump(mode="json")
+                if skill_invocation is not None
+                else None,
                 "attachments": [
                     {
                         "name": Path(part.path or "").name,
@@ -573,7 +604,7 @@ async def _run_once(
             snapshot = runner.context_builder.last_snapshot
             await trace_repo.record_context(
                 run_id=run_record.run_id,
-                snapshot=snapshot.model_dump(mode="json"),
+                snapshot=snapshot.trace_payload(),
                 estimated_tokens=snapshot.estimated_tokens,
             )
     if result.run.status is not RunStatus.COMPLETED:
@@ -616,6 +647,9 @@ async def _run_once(
             for part in attachments
         ],
         "mcp_tools": mcp_tools,
+        "skill": skill_invocation.summary.model_dump(mode="json")
+        if skill_invocation is not None
+        else None,
     }
 
 
@@ -699,6 +733,32 @@ def plugins_list() -> None:
             f"{item.manifest.id}\t{item.manifest.version}\t{item.status}\t"
             f"permissions={permissions}\t{item.manifest_path}"
         )
+
+
+@skills_app.command("list")
+def skills_list() -> None:
+    """列出工作区项目技能；这里只加载安全元数据。"""
+
+    items = SkillCatalog(load_config().workspace).discover()
+    if not items:
+        typer.echo("没有发现项目技能。")
+        return
+    for item in items:
+        warnings = f" · {'; '.join(item.warnings)}" if item.warnings else ""
+        typer.echo(f"{item.id}\t{item.description}\t{item.path}{warnings}")
+
+
+@skills_app.command("show")
+def skills_show(identifier: Annotated[str, typer.Argument(help="技能名或 source:name。")]) -> None:
+    """显式读取一个项目技能并显示来源与正文，不执行附带资源。"""
+
+    try:
+        invocation = SkillCatalog(load_config().workspace).inspect(identifier)
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        typer.echo(f"错误：{exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"# {invocation.summary.id}\n来源: {invocation.summary.path}\n")
+    typer.echo(invocation.instructions)
 
 
 @frameworks_app.command("list")

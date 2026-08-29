@@ -9,6 +9,7 @@ from yfharness.core.context import ContextBuilder
 from yfharness.core.exceptions import PolicyDeniedError
 from yfharness.core.models import Message, MessageRole, ModelConfig, ToolDefinition
 from yfharness.core.policies import AgentMode
+from yfharness.core.skills import SkillCatalog
 
 
 def model(*, context_window: int = 2_000, system: bool = True) -> ModelConfig:
@@ -177,6 +178,37 @@ def test_model_without_system_message_receives_combined_user_instructions(tmp_pa
 
     assert all(message.role is not MessageRole.SYSTEM for message in snapshot.messages)
     assert "[Harness instructions]" in snapshot.messages[-1].text_content
+
+
+def test_explicit_skill_is_injected_with_provenance_but_not_trace_body(tmp_path: Path) -> None:
+    skill_file = tmp_path / ".agents" / "skills" / "audit" / "SKILL.md"
+    skill_file.parent.mkdir(parents=True)
+    skill_file.write_text(
+        "---\nname: audit\ndescription: Audit a target\n---\nPRIVATE-SKILL-BODY $ARGUMENTS",
+        encoding="utf-8",
+    )
+    skill = SkillCatalog(tmp_path).invoke("audit", "src")
+    builder = ContextBuilder(tmp_path, lambda text: max(1, len(text) // 4))
+
+    snapshot = builder.build(
+        user_input="run audit",
+        history=[],
+        mode=AgentMode.REVIEW,
+        tools=[],
+        model=model(),
+        native_tools=True,
+        skill=skill,
+    )
+
+    rendered = "\n".join(message.text_content for message in snapshot.messages)
+    assert "PRIVATE-SKILL-BODY src" in rendered
+    assert any(
+        source.kind == "skill" and source.path == ".agents/skills/audit/SKILL.md"
+        for source in snapshot.sources
+    )
+    trace = snapshot.trace_payload()
+    assert "messages" not in trace
+    assert "PRIVATE-SKILL-BODY" not in str(trace)
 
 
 def test_context_automatically_selects_semantically_relevant_local_file(tmp_path: Path) -> None:

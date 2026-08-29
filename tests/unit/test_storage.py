@@ -62,6 +62,39 @@ async def test_session_crud_search_and_export(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_sessions_are_scoped_to_their_resolved_workspace(tmp_path: Path) -> None:
+    database = Database(tmp_path / "test.sqlite3")
+    await database.initialize()
+    repository = SessionRepository(database)
+    first_workspace = tmp_path / "first"
+    second_workspace = tmp_path / "second"
+    first_workspace.mkdir()
+    second_workspace.mkdir()
+    first = await repository.create(
+        title="First",
+        provider="mock",
+        model="mock-default",
+        workspace=first_workspace,
+    )
+    second = await repository.create(
+        title="Second",
+        provider="mock",
+        model="mock-default",
+        workspace=second_workspace,
+    )
+    legacy = await repository.create(
+        title="Legacy",
+        provider="mock",
+        model="mock-default",
+    )
+
+    assert [item.id for item in await repository.list(workspace=first_workspace)] == [first.id]
+    assert [item.id for item in await repository.list(workspace=second_workspace)] == [second.id]
+    assert {item.id for item in await repository.list()} == {first.id, second.id, legacy.id}
+    assert (await repository.fork(first.id)).workspace == str(first_workspace.resolve())
+
+
+@pytest.mark.asyncio
 async def test_session_fork_copies_history_without_reusing_message_ids(tmp_path: Path) -> None:
     database = Database(tmp_path / "test.sqlite3")
     await database.initialize()

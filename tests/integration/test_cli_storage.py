@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from yfharness.cli import app
@@ -45,3 +46,25 @@ def test_cli_persists_lists_and_exports_session(tmp_path: Path) -> None:
 
     deleted = runner.invoke(app, ["sessions", "delete", session_id, "--yes"], env=env)
     assert deleted.exit_code == 0, deleted.output
+
+
+def test_invalid_skill_fails_before_creating_persistent_run(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    skill = tmp_path / ".agents" / "skills" / "hidden" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text(
+        "---\nname: hidden\ndescription: hidden\nuser-invocable: false\n---\nHidden",
+        encoding="utf-8",
+    )
+    env = {"YFH_DATA_DIR": str(tmp_path / "data"), "YFH_CONFIG_DIR": str(tmp_path / "config")}
+
+    failed = runner.invoke(app, ["run", "--skill", "hidden", "task"], env=env)
+    listed = runner.invoke(app, ["sessions", "list"], env=env)
+
+    assert failed.exit_code == 1
+    assert "不允许用户显式调用" in failed.output
+    assert listed.exit_code == 0
+    assert listed.output == ""

@@ -22,6 +22,7 @@ from yfharness.core.models import (
 from yfharness.core.policies import AgentMode
 from yfharness.core.project_index import ProjectIndex
 from yfharness.core.prompts import build_system_prompt
+from yfharness.core.skills import SkillInvocation
 from yfharness.tools.security import WorkspaceGuard, truncate_output
 
 TokenEstimator = Callable[[str], int]
@@ -43,6 +44,18 @@ class ContextSnapshot(DomainModel):
     usage_ratio: float
     compacted: bool = False
     summary: CompactionSummary | None = None
+
+    def trace_payload(self) -> dict[str, object]:
+        """Return diagnostics without persisting prompts, attachments, or skill bodies."""
+
+        return {
+            "sources": [source.model_dump(mode="json") for source in self.sources],
+            "estimated_tokens": self.estimated_tokens,
+            "budget_tokens": self.budget_tokens,
+            "usage_ratio": self.usage_ratio,
+            "compacted": self.compacted,
+            "summary_present": self.summary is not None,
+        }
 
 
 class ContextBuilder:
@@ -95,6 +108,7 @@ class ContextBuilder:
         tools: list[ToolDefinition],
         model: ModelConfig,
         native_tools: bool,
+        skill: SkillInvocation | None = None,
     ) -> ContextSnapshot:
         sources: list[ContextSource] = []
         system = build_system_prompt(mode, tools, native_tools=native_tools)
@@ -113,6 +127,17 @@ class ContextBuilder:
         combined_system = system
         if instruction_text:
             combined_system += "\n\n# 项目与用户指令\n" + instruction_text
+        if skill is not None:
+            combined_system += "\n\n" + skill.render()
+            sources.append(
+                ContextSource(
+                    kind="skill",
+                    label=skill.summary.id,
+                    path=skill.summary.path,
+                    scope=skill.summary.source,
+                    estimated_tokens=self.estimator(skill.instructions),
+                )
+            )
         messages = list(history)
         if self.previous_summary is not None:
             summary_message = Message.text(

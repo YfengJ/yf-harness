@@ -151,6 +151,96 @@ def test_desktop_image_attachment_keeps_transfer_choice_explicit(
 
 
 @pytest.mark.desktop
+def test_desktop_discovers_filters_and_runs_explicit_project_skill(
+    qt_application: QGuiApplication,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("YFH_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("YFH_DATA_DIR", str(tmp_path / "data"))
+    skill = tmp_path / ".agents" / "skills" / "review" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text(
+        "---\nname: review\ndescription: Review a target\n---\nReview $ARGUMENTS",
+        encoding="utf-8",
+    )
+    controller = DesktopController()
+
+    assert controller.skillCount == 1
+    assert controller.skillIdAt(0) == "codex:review"
+    controller.filterSkills("$missing")
+    assert controller.skillCount == 0
+    controller.filterSkills("$rev")
+    assert controller.skillIdAt(0) == "codex:review"
+
+    controller.sendMessage(
+        "$codex:review src/app.py",
+        "mock",
+        "mock-default",
+        "balanced",
+        "review",
+        "deny_writes",
+    )
+    _wait_until(lambda: not controller.busy and bool(controller.currentSessionId))
+
+    assert any(
+        _item(controller.instructions, row)["source"] == "skill"
+        for row in range(controller.instructions.rowCount())
+    )
+    controller.shutdown()
+
+
+@pytest.mark.desktop
+def test_desktop_opens_and_remembers_selected_workspace(
+    qt_application: QGuiApplication,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = tmp_path / "config"
+    data = tmp_path / "data"
+    project = tmp_path / "selected-project"
+    project.mkdir()
+    skill = project / ".agents" / "skills" / "selected" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text(
+        "---\nname: selected\ndescription: Selected workspace skill\n---\n"
+        "Use SELECTED-WORKSPACE-CONTEXT",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("YFH_CONFIG_DIR", str(config))
+    monkeypatch.setenv("YFH_DATA_DIR", str(data))
+    controller = DesktopController()
+
+    controller.setWorkspace(project.as_uri())
+    _wait_until(lambda: controller.statusText == "准备就绪")
+
+    assert controller.workspacePath == str(project)
+    assert controller.skillIdAt(0) == "codex:selected"
+    assert '"workspace"' in (config / "desktop-state.json").read_text(encoding="utf-8")
+
+    controller.sendMessage(
+        "$codex:selected verify",
+        "mock",
+        "mock-default",
+        "balanced",
+        "review",
+        "deny_writes",
+    )
+    _wait_until(lambda: not controller.busy and bool(controller.currentSessionId))
+    assert any(
+        _item(controller.instructions, row)["source"] == "skill"
+        and _item(controller.instructions, row)["path"] == ".agents/skills/selected/SKILL.md"
+        for row in range(controller.instructions.rowCount())
+    )
+    controller.shutdown()
+
+    restored = DesktopController()
+    assert restored.workspacePath == str(project)
+    restored.shutdown()
+
+
+@pytest.mark.desktop
 def test_desktop_qml_smoke_starts_without_runtime_errors(tmp_path: Path) -> None:
     environment = os.environ.copy()
     environment.update(

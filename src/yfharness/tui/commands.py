@@ -15,6 +15,8 @@ COMMANDS: dict[str, str] = {
     "provider": "查看或切换 Provider",
     "mode": "查看或切换模式",
     "workflow": "查看或切换工作流配置",
+    "skills": "列出项目技能",
+    "skill": "显式运行项目技能",
     "tools": "列出可用工具",
     "permissions": "查看或切换审批策略",
     "context": "显示上下文组成",

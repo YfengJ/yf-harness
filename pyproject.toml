@@ -4,13 +4,13 @@ build-backend = "hatchling.build"
 
 [project]
 name = "yf-harness"
-version = "0.5.0"
+version = "0.6.0"
 description = "Local-first desktop and terminal LLM agent harness"
 readme = "README.md"
 requires-python = ">=3.12"
 license = { file = "LICENSE" }
 authors = [{ name = "YF-Harness contributors" }]
-keywords = ["agent", "llm", "terminal", "tui", "tool-calling"]
+keywords = ["agent", "desktop", "llm", "skills", "tool-calling"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "License :: OSI Approved :: MIT License",

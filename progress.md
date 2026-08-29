@@ -2,8 +2,8 @@
 
 ## 当前状态
 
-- 当前阶段：阶段 13（可扩展工作流与性能纵深，完成）
-- 整体状态：0.5.0 已发布到私密 GitHub，本地发布门、macOS App 与 8 Job 跨平台 CI 全绿
+- 当前阶段：阶段 14（可信项目技能与桌面命令面板，发布收口中）
+- 整体状态：0.6.0 实现、本地质量门、发布包与 macOS App 均已完成；待推送私密 GitHub并确认远端 CI
 - 初始仓库：空目录、非 Git 仓库
 - 当前风险：P1（安全边界、子进程、持久化、CLI/TUI 公共契约）
 
@@ -16,6 +16,13 @@
 - 完成阶段 0 的规划、风险、契约和验收基线。
 
 ## 当前进行
+
+- 已完成阶段 14 官方能力复核与变更简报：选择“显式项目技能 + `$` 桌面命令面板”，不启用隐式触发、用户目录扫描或技能脚本执行。
+- 规划技能的 Codex session catchup 脚本仍不支持当前原生 session 格式；已直接从三份持续规划文件恢复状态，不影响实现。
+- 阶段 14 初始工作树干净；Change Radar 启发式 P3/0，因上下文、安全和公共 UI 契约人工按 P1 管理。
+- 0.6.0 已实现可信项目技能发现、渐进披露、CLI/TUI/桌面显式调用、工作区会话隔离和整次运行安全恢复；发布审查发现的工作区错配、重复技能绕过、撤销竞态及无效技能残留运行均已修复。
+- 0.6.0 本地发布门：154 passed、82.83% 覆盖率，Ruff/格式、核心 68 文件与桌面 3 文件 mypy、20/20 Eval、sdist/wheel、全新 wheel 安装均通过。
+- 0.6.0 macOS `YF-Harness.app` 为 235 MiB；Plist 版本、ad-hoc 签名、LaunchServices、Bundle 直接截图和界面视觉检查均通过。
 
 - 阶段 13 本地实现已完成：版本化 Workflow/Profile、声明式 Hook、多模态图片、MCP stdio、插件静态发现、索引缓存与 Bundle 瘦身均已落地。
 - 0.5 初始仓库为干净 `main`；规划技能的 Codex session catchup 解析暂不支持，但 `task_plan.md`、`progress.md`、`findings.md` 已直接恢复。
@@ -140,6 +147,10 @@
 | 2026-08-28 | 0.5.0 macOS App | 235 MB Bundle；无 QtWebEngine 等顶层重型模块；ad-hoc codesign、Plist 0.5.0、LaunchServices smoke 与真实截图通过 |
 | 2026-08-28 | 项目索引性能 | 140 文件、100 次选择由 662.51 ms 降至 513.28 ms；冷索引 9.26 ms |
 | 2026-08-28 | 最终 0.5.0 CI `33098549805` | minimal-install、desktop-smoke 与 Linux/macOS/Windows × Python 3.12/3.13 全部通过 |
+| 2026-08-30 | 0.6.0 本地发布门 | 154 passed、82.83% 覆盖率；Ruff/format、核心 68 文件与桌面 3 文件 mypy 全部通过 |
+| 2026-08-30 | 0.6.0 Eval/构建 | 20/20 Eval；0.6.0 sdist/wheel 成功；全新环境安装 wheel 后 version 与 Mock JSON run 通过 |
+| 2026-08-30 | 0.6.0 macOS App | 235 MiB Bundle；Plist 0.6.0、ad-hoc codesign、LaunchServices smoke、Bundle 截图与视觉检查通过 |
+| 2026-08-30 | 0.6.0 Change Radar | P1/30，无 blocking gaps；依赖、迁移、运行时与界面风险均有直接验证证据 |
 
 ## 错误与修复
 

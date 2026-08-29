@@ -7,6 +7,7 @@ import hashlib
 import json
 import sqlite3
 from datetime import UTC, datetime
+from pathlib import Path
 from uuid import uuid4
 
 from yfharness.core.models import AgentRun, AgentState, Message, RunStatus, Usage
@@ -16,6 +17,12 @@ from yfharness.storage.models import FileChangeRecord, SessionRecord
 
 def _now() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def _workspace_value(workspace: Path | str | None) -> str | None:
+    if workspace is None:
+        return None
+    return str(Path(workspace).expanduser().resolve())
 
 
 class SessionRepository:
@@ -29,16 +36,27 @@ class SessionRepository:
         provider: str,
         model: str,
         mode: str = "chat",
+        workspace: Path | str | None = None,
     ) -> SessionRecord:
         session_id = str(uuid4())
         now = _now()
         async with self.database.connect() as connection:
             await connection.execute(
                 """
-                INSERT INTO sessions(id, title, provider, model, mode, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO sessions(
+                    id, title, provider, model, mode, workspace, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (session_id, title, provider, model, mode, now, now),
+                (
+                    session_id,
+                    title,
+                    provider,
+                    model,
+                    mode,
+                    _workspace_value(workspace),
+                    now,
+                    now,
+                ),
             )
             await connection.commit()
         session = await self.get(session_id)
@@ -53,7 +71,11 @@ class SessionRepository:
         return SessionRecord.model_validate(dict(row)) if row else None
 
     async def list(
-        self, *, query: str | None = None, include_archived: bool = False
+        self,
+        *,
+        query: str | None = None,
+        include_archived: bool = False,
+        workspace: Path | str | None = None,
     ) -> builtins.list[SessionRecord]:
         conditions = ["1 = 1"]
         params: list[object] = []
@@ -63,6 +85,9 @@ class SessionRepository:
             conditions.append("title LIKE ? ESCAPE '\\'")
             escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             params.append(f"%{escaped}%")
+        if workspace is not None:
+            conditions.append("workspace = ?")
+            params.append(_workspace_value(workspace))
         sql = f"SELECT * FROM sessions WHERE {' AND '.join(conditions)} ORDER BY updated_at DESC"
         async with self.database.connect() as connection:
             rows = await (await connection.execute(sql, params)).fetchall()
@@ -144,6 +169,7 @@ class SessionRepository:
             provider=source.provider,
             model=source.model,
             mode=source.mode,
+            workspace=source.workspace,
         )
         for message in await self.messages(session_id):
             await self.add_message(
@@ -344,6 +370,20 @@ class FileChangeRepository:
             ).fetchall()
         return [FileChangeRecord.model_validate(dict(row)) for row in rows]
 
+    async def list_for_run(self, run_id: str) -> builtins.list[FileChangeRecord]:
+        async with self.database.connect() as connection:
+            rows = await (
+                await connection.execute(
+                    """
+                    SELECT * FROM file_change_records
+                    WHERE run_id = ?
+                    ORDER BY created_at DESC, rowid DESC
+                    """,
+                    (run_id,),
+                )
+            ).fetchall()
+        return [FileChangeRecord.model_validate(dict(row)) for row in rows]
+
     async def mark_undone(self, record_id: str) -> bool:
         async with self.database.connect() as connection:
             cursor = await connection.execute(
@@ -355,6 +395,24 @@ class FileChangeRepository:
             )
             await connection.commit()
             return cursor.rowcount > 0
+
+    async def mark_undone_many(self, record_ids: builtins.list[str]) -> bool:
+        if not record_ids:
+            return False
+        placeholders = ", ".join("?" for _ in record_ids)
+        async with self.database.connect() as connection:
+            cursor = await connection.execute(
+                f"""
+                UPDATE file_change_records SET undone_at = ?
+                WHERE id IN ({placeholders}) AND undone_at IS NULL
+                """,
+                (_now(), *record_ids),
+            )
+            if cursor.rowcount != len(record_ids):
+                await connection.rollback()
+                return False
+            await connection.commit()
+            return True
 
 
 class TraceRepository:

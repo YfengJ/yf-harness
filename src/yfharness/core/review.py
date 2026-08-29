@@ -16,6 +16,7 @@ from yfharness.tools.security import WorkspaceGuard, truncate_output
 
 class ChangeReviewItem(DomainModel):
     id: str
+    run_id: str | None = None
     path: str
     summary: str
     diff: str
@@ -66,6 +67,56 @@ class WorkspaceReview:
             raise ToolExecutionError("变更状态已被其他操作更新")
         return message
 
+    async def restore_run(self, run_id: str) -> str:
+        records = await self.repository.list_for_run(run_id)
+        active = [record for record in records if record.undone_at is None]
+        if not active:
+            raise ToolExecutionError("该运行没有可撤销的文件变更")
+        virtual: dict[Path, bytes | None] = {}
+        original: dict[Path, bytes | None] = {}
+        for record in active:
+            if " -> " in record.path or (record.before_hash is None and record.after_hash is None):
+                raise ToolExecutionError("该运行包含暂不支持整体撤销的变更类型")
+            path = self.guard.resolve(record.path)
+            if path.exists() and not path.is_file():
+                raise ToolExecutionError(f"目标不是普通文件，已拒绝覆盖：{record.path}")
+            if path not in virtual:
+                current = path.read_bytes() if path.is_file() else None
+                virtual[path] = current
+                original[path] = current
+            if _hash(virtual[path]) != record.after_hash:
+                raise ToolExecutionError(f"{record.path} 在 Agent 修改后又发生变化，整组撤销已取消")
+            virtual[path] = record.before_content
+
+        written: dict[Path, bytes | None] = {}
+        try:
+            for record in active:
+                path = self.guard.resolve(record.path)
+                current = path.read_bytes() if path.is_file() else None
+                if _hash(current) != record.after_hash:
+                    raise ToolExecutionError(
+                        f"{record.path} 在撤销写入前又发生变化，整组撤销已取消"
+                    )
+                _restore_content(path, record.before_content)
+                written[path] = record.before_content
+            if not await self.repository.mark_undone_many([record.id for record in active]):
+                raise ToolExecutionError("变更状态已被其他操作更新，整组撤销已回滚")
+        except Exception as exc:
+            rollback_conflicts: list[str] = []
+            for path, restored_content in written.items():
+                current = path.read_bytes() if path.is_file() else None
+                if _hash(current) != _hash(restored_content):
+                    rollback_conflicts.append(self.guard.relative(path))
+                    continue
+                _restore_content(path, original[path])
+            if rollback_conflicts:
+                joined = "、".join(rollback_conflicts)
+                raise ToolExecutionError(
+                    f"整组撤销遇到并发编辑，以下文件未覆盖，请人工检查：{joined}"
+                ) from exc
+            raise
+        return f"已安全撤销本次运行的 {len(active)} 项文件变更"
+
     def _review_item(self, record: FileChangeRecord) -> ChangeReviewItem:
         status = "undone" if record.undone_at is not None else "active"
         can_restore = (
@@ -75,6 +126,7 @@ class WorkspaceReview:
         )
         return ChangeReviewItem(
             id=record.id,
+            run_id=record.run_id,
             path=record.path,
             summary=_change_summary(record),
             diff=_unified_diff(record, self.diff_limit),
@@ -127,3 +179,12 @@ def _decode(content: bytes | None) -> str | None:
 
 def _hash(content: bytes | None) -> str | None:
     return hashlib.sha256(content).hexdigest() if content is not None else None
+
+
+def _restore_content(path: Path, content: bytes | None) -> None:
+    if content is None:
+        if path.exists():
+            path.unlink()
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _atomic_bytes(path, content)

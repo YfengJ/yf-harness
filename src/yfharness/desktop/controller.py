@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import threading
 from collections import deque
 from collections.abc import Callable, Coroutine
@@ -29,7 +30,7 @@ from PySide6.QtCore import (
 
 from yfharness.cli import _run_once
 from yfharness.config.loader import load_config
-from yfharness.config.paths import database_file
+from yfharness.config.paths import config_dir, database_file
 from yfharness.core.agent import AgentRunner
 from yfharness.core.agent_events import (
     AgentEvent,
@@ -45,6 +46,7 @@ from yfharness.core.events import TextDelta
 from yfharness.core.models import ApprovalDecision, ApprovalRequest, ContentPart, MessageRole
 from yfharness.core.policies import AgentMode, ApprovalPolicy
 from yfharness.core.review import ChangeReviewItem, WorkspaceReview
+from yfharness.core.skills import SkillCatalog, SkillSummary
 from yfharness.storage.database import Database
 from yfharness.storage.models import SessionRecord
 from yfharness.storage.repositories import FileChangeRepository, RunRepository, SessionRepository
@@ -110,6 +112,9 @@ class DictListModel(QAbstractListModel):
         self.endRemoveRows()
         return item
 
+    def item_at(self, index: int) -> dict[str, object] | None:
+        return self._items[index] if 0 <= index < len(self._items) else None
+
 
 class _PendingApproval:
     def __init__(self) -> None:
@@ -136,10 +141,12 @@ class DesktopController(QObject):
     statusChanged = Signal()
     currentSessionChanged = Signal()
     configurationChanged = Signal()
+    skillsChanged = Signal()
     queueChanged = Signal()
     attachmentsChanged = Signal()
     planChanged = Signal()
     contextChanged = Signal()
+    workspaceChanged = Signal()
     errorOccurred = Signal(str)
     approvalRequested = Signal(str)
     agentEvent = Signal(str, object)
@@ -153,12 +160,24 @@ class DesktopController(QObject):
         )
         self.instructions = DictListModel(["source", "label", "path", "scope", "tokens"], self)
         self.changes = DictListModel(
-            ["changeId", "path", "summary", "diff", "status", "canRestore", "created"],
+            [
+                "changeId",
+                "runId",
+                "path",
+                "summary",
+                "diff",
+                "status",
+                "canRestore",
+                "created",
+            ],
             self,
         )
         self.queue = DictListModel(["queueId", "prompt", "detail"], self)
         self.attachments = DictListModel(
             ["attachmentId", "name", "path", "mimeType", "size", "transfer"], self
+        )
+        self.skills = DictListModel(
+            ["skillId", "name", "description", "source", "path", "warning"], self
         )
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="yfh-desktop")
         self._busy = False
@@ -167,6 +186,7 @@ class DesktopController(QObject):
         self._current_session_title = "新任务"
         self._preview = False
         self._config = load_config()
+        self._restore_saved_workspace()
         self._stream_text = ""
         self._runner_lock = threading.Lock()
         self._active_runner: AgentRunner | None = None
@@ -179,6 +199,8 @@ class DesktopController(QObject):
         self._last_plan = ""
         self._context_summary = "尚未运行任务"
         self._base_context_items: list[dict[str, object]] = []
+        self._all_skills: list[SkillSummary] = []
+        self._refresh_skills()
         self.agentEvent.connect(self._handle_agent_event, Qt.ConnectionType.QueuedConnection)
         self.taskFinished.connect(self._handle_task_finished, Qt.ConnectionType.QueuedConnection)
 
@@ -206,9 +228,17 @@ class DesktopController(QObject):
     def attachmentModel(self) -> QObject:
         return self.attachments
 
+    @Property(QObject, constant=True)
+    def skillModel(self) -> QObject:
+        return self.skills
+
     @Property(int, notify=attachmentsChanged)
     def attachmentCount(self) -> int:
         return len(self._pending_attachments)
+
+    @Property(int, notify=skillsChanged)
+    def skillCount(self) -> int:
+        return self.skills.rowCount()
 
     @Property(bool, notify=busyChanged)
     def busy(self) -> bool:
@@ -242,7 +272,7 @@ class DesktopController(QObject):
     def currentSessionTitle(self) -> str:
         return self._current_session_title
 
-    @Property(str, constant=True)
+    @Property(str, notify=workspaceChanged)
     def workspacePath(self) -> str:
         if self._preview:
             return "本地项目 / YF-Harness"
@@ -313,6 +343,46 @@ class DesktopController(QObject):
             item for item in self._pending_attachments if item[0] != attachment_id
         ]
         self._refresh_attachments()
+
+    @Slot(str)
+    def filterSkills(self, query: str) -> None:
+        value = query.strip().lstrip("$").split(maxsplit=1)[0].lower()
+        matches = [
+            item
+            for item in self._all_skills
+            if not value or item.id.lower().startswith(value) or item.name.lower().startswith(value)
+        ][:8]
+        self.skills.replace([_skill_item(item) for item in matches])
+        self.skillsChanged.emit()
+
+    @Slot(int, result=str)
+    def skillIdAt(self, index: int) -> str:
+        item = self.skills.item_at(index)
+        return str(item.get("skillId", "")) if item is not None else ""
+
+    @Slot(str)
+    def setWorkspace(self, value: str) -> None:
+        if self._busy:
+            self.errorOccurred.emit("请先等待当前任务结束或取消运行")
+            return
+        url = QUrl(value)
+        raw_path = url.toLocalFile() if url.isLocalFile() else value
+        path = Path(raw_path).expanduser().resolve()
+        if not path.is_dir():
+            self.errorOccurred.emit("请选择存在的项目文件夹")
+            return
+        self._config.workspace = path
+        self._save_workspace(path)
+        self._current_session_id = ""
+        self._current_session_title = path.name or "新任务"
+        self.messages.replace([])
+        self.changes.replace([])
+        self.clearAttachments()
+        self._refresh_skills()
+        self.workspaceChanged.emit()
+        self.currentSessionChanged.emit()
+        self._set_status("正在载入项目")
+        self._submit("workspace", self._load_workspace)
 
     @Slot()
     def clearAttachments(self) -> None:
@@ -502,6 +572,15 @@ class DesktopController(QObject):
             lambda: self._restore_change(record_id, self._current_session_id),
         )
 
+    @Slot(str)
+    def restoreRun(self, run_id: str) -> None:
+        if self._busy or not run_id or not self._current_session_id:
+            return
+        self._submit(
+            "restore_run",
+            lambda: self._restore_run(run_id, self._current_session_id),
+        )
+
     @Slot()
     def forkSession(self) -> None:
         if self._busy or not self._current_session_id:
@@ -542,6 +621,8 @@ class DesktopController(QObject):
         except Exception as exc:
             self.errorOccurred.emit(f"配置加载失败：{exc}")
             return
+        self._restore_saved_workspace()
+        self._refresh_skills()
         self.configurationChanged.emit()
         self._set_status("配置已刷新")
 
@@ -602,6 +683,7 @@ class DesktopController(QObject):
             [
                 {
                     "changeId": "preview-change",
+                    "runId": "preview-run",
                     "path": "src/yfharness/desktop/controller.py",
                     "summary": "修改文件",
                     "diff": "+ queued messages\n+ conflict-safe restore",
@@ -638,7 +720,7 @@ class DesktopController(QObject):
         database = Database(database_file())
         await database.initialize()
         await RunRepository(database).mark_interrupted()
-        sessions = await SessionRepository(database).list()
+        sessions = await SessionRepository(database).list(workspace=self._config.workspace)
         builder = ContextBuilder(self._config.workspace, lambda text: max(1, len(text) // 4))
         instructions = builder.instruction_documents()
         return {
@@ -658,7 +740,10 @@ class DesktopController(QObject):
     async def _load_sessions(self, query: str | None) -> dict[str, object]:
         database = Database(database_file())
         await database.initialize()
-        sessions = await SessionRepository(database).list(query=query)
+        sessions = await SessionRepository(database).list(
+            query=query,
+            workspace=self._config.workspace,
+        )
         return {"sessions": [_session_item(item) for item in sessions]}
 
     async def _load_session(self, session_id: str) -> dict[str, object]:
@@ -668,6 +753,10 @@ class DesktopController(QObject):
         session = await repository.get(session_id)
         if session is None:
             raise KeyError(f"会话不存在：{session_id}")
+        if session.workspace is None or (
+            session.workspace != str(WorkspaceGuard(self._config.workspace).root)
+        ):
+            raise ValueError("该会话不属于当前工作区")
         messages = await repository.messages(session_id)
         changes = await WorkspaceReview(
             self._config.workspace,
@@ -697,6 +786,14 @@ class DesktopController(QObject):
         await database.initialize()
         review = WorkspaceReview(self._config.workspace, FileChangeRepository(database))
         message = await review.restore(record_id)
+        items = await review.list_for_session(session_id)
+        return {"message": message, "changes": [_change_item(item) for item in items]}
+
+    async def _restore_run(self, run_id: str, session_id: str) -> dict[str, object]:
+        database = Database(database_file())
+        await database.initialize()
+        review = WorkspaceReview(self._config.workspace, FileChangeRepository(database))
+        message = await review.restore_run(run_id)
         items = await review.list_for_session(session_id)
         return {"message": message, "changes": [_change_item(item) for item in items]}
 
@@ -747,6 +844,7 @@ class DesktopController(QObject):
             event_sink=self._observe_event,
             approval_handler=self._request_approval,
             runner_sink=runner_sink,
+            config_override=self._config,
         )
         result["mode"] = mode.value
         result["workflow_id"] = workflow
@@ -824,7 +922,7 @@ class DesktopController(QObject):
             return
         if not isinstance(payload, dict):
             return
-        if kind in {"bootstrap", "sessions"}:
+        if kind in {"bootstrap", "sessions", "workspace"}:
             sessions = payload.get("sessions", [])
             if isinstance(sessions, list):
                 self.sessions.replace(sessions)
@@ -883,7 +981,7 @@ class DesktopController(QObject):
             changes = payload.get("changes", [])
             if isinstance(changes, list):
                 self.changes.replace(changes)
-        elif kind == "restore_change":
+        elif kind in {"restore_change", "restore_run"}:
             changes = payload.get("changes", [])
             if isinstance(changes, list):
                 self.changes.replace(changes)
@@ -945,6 +1043,41 @@ class DesktopController(QObject):
         )
         self.attachmentsChanged.emit()
 
+    def _refresh_skills(self) -> None:
+        self._all_skills = [
+            item for item in SkillCatalog(self._config.workspace).discover() if item.user_invocable
+        ]
+        self.skills.replace([_skill_item(item) for item in self._all_skills[:8]])
+        self.skillsChanged.emit()
+
+    def _restore_saved_workspace(self) -> None:
+        path = config_dir() / "desktop-state.json"
+        try:
+            if not path.is_file() or path.stat().st_size > 16_384:
+                return
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            workspace = payload.get("workspace") if isinstance(payload, dict) else None
+            candidate = (
+                Path(workspace).expanduser().resolve() if isinstance(workspace, str) else None
+            )
+            if candidate is not None and candidate.is_dir():
+                self._config.workspace = candidate
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError):
+            return
+
+    def _save_workspace(self, workspace: Path) -> None:
+        path = config_dir() / "desktop-state.json"
+        temporary = path.with_suffix(".tmp")
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            temporary.write_text(
+                json.dumps({"workspace": str(workspace)}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            os.replace(temporary, path)
+        except OSError as exc:
+            self.errorOccurred.emit(f"项目已打开，但无法保存最近项目：{exc}")
+
     def _set_busy(self, value: bool) -> None:
         if self._busy != value:
             self._busy = value
@@ -968,6 +1101,7 @@ def _session_item(session: SessionRecord) -> dict[str, object]:
 def _change_item(item: ChangeReviewItem) -> dict[str, object]:
     return {
         "changeId": item.id,
+        "runId": item.run_id or "",
         "path": item.path,
         "summary": item.summary,
         "diff": item.diff,
@@ -984,6 +1118,17 @@ def _context_item(item: dict[str, object]) -> dict[str, object]:
         "path": str(item.get("path") or "运行时上下文"),
         "scope": str(item.get("scope") or item.get("kind", "runtime")),
         "tokens": _safe_int(item.get("estimated_tokens")),
+    }
+
+
+def _skill_item(item: SkillSummary) -> dict[str, object]:
+    return {
+        "skillId": item.id,
+        "name": item.name,
+        "description": item.description,
+        "source": item.source,
+        "path": item.path,
+        "warning": " · ".join(item.warnings),
     }
 
 
