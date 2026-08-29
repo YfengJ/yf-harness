@@ -111,3 +111,4 @@
 - Trace 只保存技能名称、来源和路径等元数据，不保存消息、附件或完整技能正文；无效技能在创建持久化运行之前被拒绝。
 - 本地最终证据为 154 项测试、82.83% 覆盖率、20/20 Eval、0.6.0 sdist/wheel 隔离安装和 235 MiB macOS App；真实 Bundle 截图通过视觉检查。
 - 最终 Change Radar 为 P1/30 且无 blocking gaps；高风险来源是预期的依赖元数据变化，SQLite、运行时、桌面和多入口契约均已有专项与全量证据。
+- GitHub Actions run `33275432095` 最终确认 minimal-install、desktop-smoke 及 Ubuntu/macOS/Windows × Python 3.12/3.13 八个 Job 全绿；目标仓库在发布前再次确认为 `PRIVATE`。

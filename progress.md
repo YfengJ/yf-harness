@@ -2,8 +2,8 @@
 
 ## 当前状态
 
-- 当前阶段：阶段 14（可信项目技能与桌面命令面板，发布收口中）
-- 整体状态：0.6.0 实现、本地质量门、发布包与 macOS App 均已完成；待推送私密 GitHub并确认远端 CI
+- 当前阶段：阶段 14（可信项目技能与桌面命令面板，已完成）
+- 整体状态：0.6.0 已发布到私密 GitHub；本地发布门与 8 个远端 CI Job 全部通过
 - 初始仓库：空目录、非 Git 仓库
 - 当前风险：P1（安全边界、子进程、持久化、CLI/TUI 公共契约）
 
@@ -151,6 +151,7 @@
 | 2026-08-30 | 0.6.0 Eval/构建 | 20/20 Eval；0.6.0 sdist/wheel 成功；全新环境安装 wheel 后 version 与 Mock JSON run 通过 |
 | 2026-08-30 | 0.6.0 macOS App | 235 MiB Bundle；Plist 0.6.0、ad-hoc codesign、LaunchServices smoke、Bundle 截图与视觉检查通过 |
 | 2026-08-30 | 0.6.0 Change Radar | P1/30，无 blocking gaps；依赖、迁移、运行时与界面风险均有直接验证证据 |
+| 2026-08-30 | 最终 0.6.0 CI `33275432095` | minimal-install、desktop-smoke 与 Linux/macOS/Windows × Python 3.12/3.13 全部通过 |
 
 ## 错误与修复
 
