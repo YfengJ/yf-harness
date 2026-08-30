@@ -17,6 +17,7 @@ if [[ -d "${output_app}" ]]; then
 fi
 
 uv sync --extra desktop-build --locked
+bundle_version="$(uv run python -c 'from yfharness import __version__; print(__version__)')"
 icon_source="${project_root}/src/yfharness/desktop/assets/app-icon.svg"
 iconset="${build_dir}/AppIcon.iconset"
 mkdir -p "${iconset}"
@@ -46,6 +47,12 @@ bundle_plist="${output_app}/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName YF-Harness" "${bundle_plist}"
 /usr/libexec/PlistBuddy -c "Set :CFBundleName YF-Harness" "${bundle_plist}"
 /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier local.yfharness.desktop" "${bundle_plist}"
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${bundle_version}" "${bundle_plist}"
+if /usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "${bundle_plist}" >/dev/null 2>&1; then
+  /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${bundle_version}" "${bundle_plist}"
+else
+  /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string ${bundle_version}" "${bundle_plist}"
+fi
 
 for forbidden in QtWebEngineCore QtQuick3D QtCharts QtSensors QtTest; do
   if find "${output_app}/Contents/MacOS" -maxdepth 1 -name "${forbidden}*" -print -quit | grep -q .; then
@@ -62,6 +69,8 @@ fi
 
 codesign --force --deep --sign - "${output_app}"
 plutil -lint "${bundle_plist}"
+[[ "$(plutil -extract CFBundleShortVersionString raw "${bundle_plist}")" == "${bundle_version}" ]]
+[[ "$(plutil -extract CFBundleVersion raw "${bundle_plist}")" == "${bundle_version}" ]]
 open -W "${output_app}" --args --smoke-test
 
 echo "Built and verified: ${output_app} ($((bundle_kib / 1024)) MiB)"

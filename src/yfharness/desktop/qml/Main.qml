@@ -126,6 +126,51 @@ ApplicationWindow {
         Behavior on color { ColorAnimation { duration: 100 } }
     }
 
+    component ComposerChip: Rectangle {
+        id: composerChip
+        property string label: ""
+        property string glyph: ""
+        property bool selected: false
+        property int maximumLabelWidth: 132
+        signal clicked()
+        implicitWidth: chipRow.implicitWidth + 20
+        implicitHeight: 32
+        radius: 8
+        color: selected ? root.accentSoft : (chipMouse.containsMouse ? root.raised : "transparent")
+        border.width: 1
+        border.color: selected ? "#6A4E2D" : root.line
+        Row {
+            id: chipRow
+            anchors.centerIn: parent
+            spacing: 6
+            Text {
+                text: composerChip.glyph
+                color: composerChip.selected ? root.accent : root.textMuted
+                font.pixelSize: 11
+                font.weight: Font.DemiBold
+                anchors.verticalCenter: parent.verticalCenter
+            }
+            Text {
+                text: composerChip.label
+                width: Math.min(implicitWidth, composerChip.maximumLabelWidth)
+                color: composerChip.selected ? root.textPrimary : root.textSecondary
+                font.pixelSize: 10
+                font.weight: Font.Medium
+                elide: Text.ElideRight
+                anchors.verticalCenter: parent.verticalCenter
+            }
+        }
+        MouseArea {
+            id: chipMouse
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: composerChip.clicked()
+        }
+        Behavior on color { ColorAnimation { duration: 110 } }
+        Behavior on border.color { ColorAnimation { duration: 110 } }
+    }
+
     component MetaPill: Rectangle {
         id: metaPill
         property string label: ""
@@ -260,6 +305,13 @@ ApplicationWindow {
             approvalRisk.text = "风险等级  ·  " + request.risk_level
             approvalDetails.text = JSON.stringify(request.tool_call.arguments, null, 2)
             approvalDialog.open()
+        }
+        function onCurrentSessionChanged() {
+            if (!controller)
+                return
+            root.selectValue(providerSelect, controller.currentSessionProvider)
+            modelSelect.model = controller.modelsForProvider(providerSelect.currentText)
+            root.selectValue(modelSelect, controller.currentSessionModel)
         }
     }
 
@@ -1051,13 +1103,16 @@ ApplicationWindow {
                         }
                         RowLayout {
                             Layout.fillWidth: true
+                            spacing: 7
                             QuietButton {
+                                visible: workspace.width >= 560
                                 label: "图片"
                                 glyph: "+"
                                 onClicked: imageDialog.open()
                             }
                             Switch {
                                 id: sendImageSwitch
+                                visible: workspace.width >= 960
                                 text: "允许上传原图"
                                 checked: false
                                 font.pixelSize: 10
@@ -1067,18 +1122,253 @@ ApplicationWindow {
                                               ? "所选图片将发送给远程模型"
                                               : "默认仅在本地记录，不上传图片内容"
                             }
+                            ComposerChip {
+                                objectName: "composerMode"
+                                glyph: modeSelect.currentText === "plan" ? "◇" : "◆"
+                                label: modeSelect.currentText === "plan" ? "Plan" : "Agent"
+                                selected: modeSelect.currentText === "plan"
+                                onClicked: {
+                                    if (modeSelect.currentText === "plan") {
+                                        root.selectValue(workflowSelect, controller.defaultWorkflow)
+                                        root.selectValue(modeSelect,
+                                                         controller.workflowMode(workflowSelect.currentText))
+                                        root.selectValue(permissionSelect,
+                                                         controller.workflowPermissions(workflowSelect.currentText))
+                                    } else {
+                                        root.selectValue(workflowSelect, "plan")
+                                        root.selectValue(modeSelect, "plan")
+                                        root.selectValue(permissionSelect, "deny_writes")
+                                    }
+                                }
+                            }
+                            ComposerChip {
+                                objectName: "composerGoal"
+                                glyph: controller && controller.hasActiveGoal ? "◎" : "○"
+                                label: controller && controller.currentGoal.length > 0
+                                       ? controller.currentGoal : "/goal"
+                                maximumLabelWidth: 112
+                                selected: controller ? controller.hasActiveGoal : false
+                                onClicked: goalPopup.open()
+                            }
+                            ControlSelect {
+                                id: composerModelSelect
+                                objectName: "composerModel"
+                                Layout.preferredWidth: workspace.width >= 850 ? 146 : 112
+                                implicitHeight: 32
+                                model: modelSelect.model
+                                currentIndex: modelSelect.currentIndex
+                                onActivated: root.selectValue(modelSelect, currentText)
+                                ToolTip.visible: hovered
+                                ToolTip.text: controller ? controller.modelDescription(currentText) : ""
+                            }
+                            ComposerChip {
+                                objectName: "composerContext"
+                                visible: workspace.width >= 720
+                                glyph: "◔"
+                                label: controller && controller.contextBudget > 0
+                                       ? Math.round(controller.contextUsageRatio * 100) + "% 上下文"
+                                       : "上下文"
+                                selected: controller ? controller.contextUsageRatio >= 0.8 : false
+                                onClicked: contextPopup.open()
+                            }
+                            Item { Layout.fillWidth: true }
                             Text {
-                                text: "$ 调用项目技能  ·  ⌘↵ 发送"
+                                visible: workspace.width >= 1040
+                                text: "$ 技能  ·  ⌘↵"
                                 color: root.textMuted
                                 font.pixelSize: 8
                             }
-                            Item { Layout.fillWidth: true }
                             QuietButton {
                                 label: controller && controller.busy ? "排队" : "发送"
                                 glyph: controller && controller.busy ? "+" : "↗"
                                 prominent: true
                                 enabled: controller ? promptInput.text.trim().length > 0 : false
                                 onClicked: root.sendCurrentPrompt()
+                            }
+                        }
+
+                        Item {
+                            Layout.preferredWidth: 0
+                            Layout.preferredHeight: 0
+                            Popup {
+                                id: goalPopup
+                            parent: Overlay.overlay
+                            x: Math.max(20, (root.width - width) / 2)
+                            y: root.height - height - 170
+                            width: Math.min(430, root.width - 40)
+                            padding: 14
+                            closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+                            onOpened: {
+                                goalInput.text = controller ? controller.currentGoal : ""
+                                goalInput.forceActiveFocus()
+                            }
+                            background: Rectangle {
+                                radius: 12
+                                color: "#181C20"
+                                border.color: root.lineStrong
+                                border.width: 1
+                            }
+                                contentItem: ColumnLayout {
+                                spacing: 10
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: "持久目标"
+                                    color: root.textPrimary
+                                    font.pixelSize: 13
+                                    font.weight: Font.DemiBold
+                                }
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: "后续每次运行都会看到这个目标，但权限与审批不会改变。"
+                                    color: root.textMuted
+                                    font.pixelSize: 9
+                                    wrapMode: Text.Wrap
+                                }
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: 92
+                                    radius: 8
+                                    color: root.canvas
+                                    border.color: goalInput.activeFocus ? root.accent : root.line
+                                    TextArea {
+                                        id: goalInput
+                                        objectName: "goalEditor"
+                                        anchors.fill: parent
+                                        anchors.margins: 8
+                                        placeholderText: "例如：完成桌面 App 的 0.8 发布"
+                                        placeholderTextColor: root.textMuted
+                                        color: root.textPrimary
+                                        font.pixelSize: 11
+                                        wrapMode: TextEdit.Wrap
+                                        background: Item { }
+                                    }
+                                }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    Text {
+                                        text: controller && controller.goalStatus === "completed"
+                                              ? "已完成" : (controller && controller.hasActiveGoal
+                                                            ? "进行中" : "未设置")
+                                        color: controller && controller.hasActiveGoal
+                                               ? root.success : root.textMuted
+                                        font.pixelSize: 9
+                                    }
+                                    Item { Layout.fillWidth: true }
+                                    QuietButton {
+                                        label: "清除"
+                                        enabled: controller ? controller.currentGoal.length > 0 : false
+                                        onClicked: {
+                                            controller.clearGoal()
+                                            goalPopup.close()
+                                        }
+                                    }
+                                    QuietButton {
+                                        label: "完成"
+                                        enabled: controller ? controller.hasActiveGoal : false
+                                        onClicked: {
+                                            controller.completeGoal()
+                                            goalPopup.close()
+                                        }
+                                    }
+                                    QuietButton {
+                                        label: "保存目标"
+                                        prominent: true
+                                        enabled: goalInput.text.trim().length > 0
+                                        onClicked: {
+                                            controller.setGoal(goalInput.text)
+                                            goalPopup.close()
+                                        }
+                                    }
+                                }
+                                }
+                            }
+                        }
+
+                        Item {
+                            Layout.preferredWidth: 0
+                            Layout.preferredHeight: 0
+                            Popup {
+                                id: contextPopup
+                            parent: Overlay.overlay
+                            x: Math.max(20, (root.width - width) / 2)
+                            y: root.height - height - 170
+                            width: 330
+                            padding: 14
+                            closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+                            background: Rectangle {
+                                radius: 12
+                                color: "#181C20"
+                                border.color: root.lineStrong
+                                border.width: 1
+                            }
+                                contentItem: ColumnLayout {
+                                spacing: 10
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    Text {
+                                        text: "上下文概览"
+                                        color: root.textPrimary
+                                        font.pixelSize: 13
+                                        font.weight: Font.DemiBold
+                                    }
+                                    Item { Layout.fillWidth: true }
+                                    Text {
+                                        text: controller && controller.contextCompacted ? "已压缩" : "LOCAL"
+                                        color: controller && controller.contextCompacted
+                                               ? root.accent : root.textMuted
+                                        font.pixelSize: 8
+                                        font.letterSpacing: 0.8
+                                    }
+                                }
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: controller ? controller.contextSummary : "待刷新"
+                                    color: root.textSecondary
+                                    font.pixelSize: 11
+                                }
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: 5
+                                    radius: 3
+                                    color: root.line
+                                    Rectangle {
+                                        width: parent.width * Math.min(1, controller
+                                                                      ? controller.contextUsageRatio : 0)
+                                        height: parent.height
+                                        radius: parent.radius
+                                        color: controller && controller.contextUsageRatio >= 0.8
+                                               ? root.accent : root.success
+                                        Behavior on width { NumberAnimation { duration: 220 } }
+                                    }
+                                }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    Text {
+                                        text: (controller ? controller.contextSourceCount : 0) + " 个来源"
+                                        color: root.textMuted
+                                        font.pixelSize: 9
+                                    }
+                                    Item { Layout.fillWidth: true }
+                                    Text {
+                                        text: controller && controller.contextBudget > 0
+                                              ? "剩余 " + Math.max(0, controller.contextBudget
+                                                                   - controller.contextTokens).toLocaleString()
+                                              : "运行后刷新"
+                                        color: root.textMuted
+                                        font.pixelSize: 9
+                                    }
+                                }
+                                QuietButton {
+                                    Layout.fillWidth: true
+                                    label: "查看上下文来源"
+                                    glyph: "↗"
+                                    onClicked: {
+                                        contextPopup.close()
+                                        root.inspectorTab = 1
+                                        root.inspectorOpen = true
+                                    }
+                                }
+                                }
                             }
                         }
                     }
@@ -1453,7 +1743,7 @@ ApplicationWindow {
                 Text {
                     Layout.fillWidth: true
                     Layout.topMargin: 10
-                    text: "YF-Harness 0.7 · Local first"
+                    text: "YF-Harness 0.8 · Local first"
                     color: root.textMuted
                     font.pixelSize: 9
                     horizontalAlignment: Text.AlignHCenter

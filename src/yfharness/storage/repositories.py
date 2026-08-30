@@ -25,6 +25,17 @@ def _workspace_value(workspace: Path | str | None) -> str | None:
     return str(Path(workspace).expanduser().resolve())
 
 
+def _normalize_goal(goal: str | None, status: str) -> tuple[str | None, str]:
+    normalized = goal.strip() if goal is not None else ""
+    if not normalized:
+        return None, "inactive"
+    if status not in {"active", "completed"}:
+        raise ValueError("goal status must be active or completed")
+    if len(normalized) > 4_000:
+        raise ValueError("goal must not exceed 4000 characters")
+    return normalized, status
+
+
 class SessionRepository:
     def __init__(self, database: Database) -> None:
         self.database = database
@@ -37,15 +48,19 @@ class SessionRepository:
         model: str,
         mode: str = "chat",
         workspace: Path | str | None = None,
+        goal: str | None = None,
+        goal_status: str = "inactive",
     ) -> SessionRecord:
+        normalized_goal, normalized_status = _normalize_goal(goal, goal_status)
         session_id = str(uuid4())
         now = _now()
         async with self.database.connect() as connection:
             await connection.execute(
                 """
                 INSERT INTO sessions(
-                    id, title, provider, model, mode, workspace, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    id, title, provider, model, mode, workspace, goal, goal_status,
+                    goal_updated_at, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     session_id,
@@ -54,6 +69,9 @@ class SessionRepository:
                     model,
                     mode,
                     _workspace_value(workspace),
+                    normalized_goal,
+                    normalized_status,
+                    now if normalized_goal is not None else None,
                     now,
                     now,
                 ),
@@ -109,6 +127,49 @@ class SessionRepository:
 
     async def delete(self, session_id: str) -> bool:
         return await self._update("DELETE FROM sessions WHERE id = ?", (session_id,))
+
+    async def update_goal(
+        self,
+        session_id: str,
+        goal: str | None,
+        *,
+        status: str = "active",
+    ) -> bool:
+        normalized_goal, normalized_status = _normalize_goal(goal, status)
+        now = _now()
+        return await self._update(
+            """
+            UPDATE sessions
+            SET goal = ?, goal_status = ?, goal_updated_at = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                normalized_goal,
+                normalized_status,
+                now if normalized_goal is not None else None,
+                now,
+                session_id,
+            ),
+        )
+
+    async def update_runtime(
+        self,
+        session_id: str,
+        *,
+        provider: str,
+        model: str,
+        mode: str,
+    ) -> bool:
+        if not provider.strip() or not model.strip() or not mode.strip():
+            raise ValueError("provider, model, and mode must not be empty")
+        return await self._update(
+            """
+            UPDATE sessions
+            SET provider = ?, model = ?, mode = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (provider, model, mode, _now(), session_id),
+        )
 
     async def add_message(self, session_id: str, message: Message) -> None:
         async with self.database.connect() as connection:
@@ -170,6 +231,8 @@ class SessionRepository:
             model=source.model,
             mode=source.mode,
             workspace=source.workspace,
+            goal=source.goal,
+            goal_status=source.goal_status,
         )
         for message in await self.messages(session_id):
             await self.add_message(

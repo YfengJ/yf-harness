@@ -7,7 +7,7 @@ import pytest
 
 from yfharness.core.models import Message, MessageRole, RunStatus
 from yfharness.storage.database import Database
-from yfharness.storage.migrations import SCHEMA_VERSION
+from yfharness.storage.migrations import MIGRATIONS, SCHEMA_VERSION
 from yfharness.storage.repositories import RunRepository, SessionRepository
 
 
@@ -39,6 +39,34 @@ async def test_migration_creates_required_tables(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_schema_v3_upgrades_existing_sessions_with_inactive_goal(tmp_path: Path) -> None:
+    database = Database(tmp_path / "legacy.sqlite3")
+    async with database.connect() as connection:
+        await connection.execute("CREATE TABLE schema_version (version INTEGER NOT NULL)")
+        await connection.execute("INSERT INTO schema_version(version) VALUES (0)")
+        for version in range(1, 4):
+            await connection.executescript(MIGRATIONS[version])
+            await connection.execute("UPDATE schema_version SET version = ?", (version,))
+        await connection.execute(
+            """
+            INSERT INTO sessions(
+                id, title, provider, model, mode, workspace, archived, created_at, updated_at
+            ) VALUES ('legacy', 'Legacy', 'mock', 'mock-default', 'agent', NULL, 0,
+                      '2026-08-30T00:00:00+00:00', '2026-08-30T00:00:00+00:00')
+            """
+        )
+        await connection.commit()
+
+    await database.initialize()
+
+    session = await SessionRepository(database).get("legacy")
+    assert session is not None
+    assert session.goal is None
+    assert session.goal_status == "inactive"
+    assert await database.schema_version() == 4
+
+
+@pytest.mark.asyncio
 async def test_session_crud_search_and_export(tmp_path: Path) -> None:
     database = Database(tmp_path / "test.sqlite3")
     await database.initialize()
@@ -50,6 +78,25 @@ async def test_session_crud_search_and_export(tmp_path: Path) -> None:
     assert [item.id for item in await repository.list(query="_100%")] == [session.id]
     assert await repository.rename(session.id, "Renamed")
     assert (await repository.get(session.id)).title == "Renamed"  # type: ignore[union-attr]
+    assert await repository.update_goal(session.id, "Ship the desktop app")
+    goal_session = await repository.get(session.id)
+    assert goal_session is not None
+    assert goal_session.goal == "Ship the desktop app"
+    assert goal_session.goal_status == "active"
+    assert goal_session.goal_updated_at is not None
+    assert await repository.update_goal(session.id, "Ship the desktop app", status="completed")
+    assert (await repository.get(session.id)).goal_status == "completed"  # type: ignore[union-attr]
+    assert await repository.update_goal(session.id, None, status="inactive")
+    cleared = await repository.get(session.id)
+    assert cleared is not None and cleared.goal is None and cleared.goal_status == "inactive"
+    assert await repository.update_runtime(
+        session.id,
+        provider="mock",
+        model="mock-fast",
+        mode="plan",
+    )
+    runtime = await repository.get(session.id)
+    assert runtime is not None and runtime.model == "mock-fast" and runtime.mode == "plan"
     markdown = await repository.export(session.id)
     payload = json.loads(await repository.export(session.id, format="json"))
     assert "## user" in markdown and "hello" in markdown
@@ -99,7 +146,13 @@ async def test_session_fork_copies_history_without_reusing_message_ids(tmp_path:
     database = Database(tmp_path / "test.sqlite3")
     await database.initialize()
     repository = SessionRepository(database)
-    source = await repository.create(title="Original", provider="mock", model="mock-default")
+    source = await repository.create(
+        title="Original",
+        provider="mock",
+        model="mock-default",
+        goal="Deliver a reviewed plan",
+        goal_status="active",
+    )
     await repository.add_message(source.id, Message.text(MessageRole.USER, "explore option A"))
 
     forked = await repository.fork(source.id)
@@ -108,6 +161,8 @@ async def test_session_fork_copies_history_without_reusing_message_ids(tmp_path:
     forked_messages = await repository.messages(forked.id)
     assert forked.id != source.id
     assert forked.title == "Original · 分支"
+    assert forked.goal == source.goal
+    assert forked.goal_status == "active"
     assert forked_messages[0].text_content == "explore option A"
     assert forked_messages[0].id != source_messages[0].id
 

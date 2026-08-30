@@ -74,6 +74,27 @@ def test_instruction_priority_attachments_and_auto_file(
     }
 
 
+def test_active_goal_is_visible_session_context_without_changing_user_message(
+    tmp_path: Path,
+) -> None:
+    builder = ContextBuilder(tmp_path, lambda text: max(1, len(text) // 4))
+
+    snapshot = builder.build(
+        user_input="先检查现状",
+        history=[],
+        mode=AgentMode.PLAN,
+        tools=[],
+        model=model(),
+        native_tools=True,
+        goal="交付一个可双击启动的桌面应用",
+    )
+
+    assert "# 当前会话目标" in snapshot.messages[0].text_content
+    assert "可双击启动" in snapshot.messages[0].text_content
+    assert snapshot.messages[-1].text_content == "先检查现状"
+    assert any(source.kind == "goal" and source.scope == "session" for source in snapshot.sources)
+
+
 def test_nested_agents_override_and_cursor_glob_are_scoped(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     source = workspace / "src" / "feature"

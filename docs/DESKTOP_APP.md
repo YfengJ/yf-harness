@@ -1,6 +1,6 @@
 # 桌面应用
 
-YF-Harness 0.7 将 Qt Quick 桌面窗口作为主要交互入口。它不是网页壳，也不需要先打开终端窗口；
+YF-Harness 0.8 将 Qt Quick 桌面窗口作为主要交互入口。它不是网页壳，也不需要先打开终端窗口；
 打包后的 `YF-Harness.app` 包含 Python、Qt 与项目运行时，可以从 Finder 双击启动。
 
 ## 直接运行源码
@@ -26,10 +26,10 @@ workspace 和安全策略继续读取同一套 YF-Harness 配置。
 ```
 
 脚本会锁定并安装 `desktop-build` extra，使用 Qt 官方 `pyside6-deploy` / Nuitka 生成
-`dist/YF-Harness.app`，写入应用名、`local.yfharness.desktop` Bundle Identifier 和 0.7.0 版本，
+`dist/YF-Harness.app`，写入应用名、`local.yfharness.desktop` Bundle Identifier 和 0.8.0 版本，
 再执行 ad-hoc 签名、Plist 校验与 LaunchServices 启动 smoke。
 
-0.7 构建继续显式排除未使用的 WebEngine、Quick3D、Charts、Sensors 与 Test 顶层二进制，
+0.8 构建继续显式排除未使用的 WebEngine、Quick3D、Charts、Sensors 与 Test 顶层二进制，
 并以 320 MiB 为发布门禁。本机验证产物为 235 MB；不同 Qt 补丁版本可能有少量波动。
 
 构建完成后可执行：
@@ -63,6 +63,13 @@ Developer ID Application 证书重新签名，并提交 Apple notarization。项
 - **Workflow：** 切换 Profile 时联动默认模式/权限，运行时同时约束模型可见和真实执行的工具。
 - **图片：** 附件显示“仅本地/发送给模型”；远程发送必须在选取图片前显式打开。
 - **技能：** 输入 `$` 打开项目技能面板；完整正文只在选择后进入当次上下文，不自动执行脚本。
+
+## 0.8 Composer 工作流控制
+
+- **Agent / Plan：** 输入框底栏直接切换；Plan 继续只暴露只读工具，生成后仍需显式点击“执行此计划”。
+- **持久 Goal：** 点击 `/goal` 编辑，或输入 `/goal <目标>`；`/goal done` 完成，`/goal clear` 清除。目标跟随当前会话与分支保存，不会自动启动任务或改变审批策略。
+- **模型：** Composer 直接列出当前 Provider 已配置的模型；完整 Provider、Workflow 和权限仍在控制台中管理。
+- **上下文：** 底栏显示最后一次真实快照的使用比例；展开后显示 Token 预算、剩余量、来源数量与压缩状态，点击可进入完整来源列表。新会话在实际运行前明确标为待刷新。
 
 ## 无头验证
 

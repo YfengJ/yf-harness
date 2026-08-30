@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 MIGRATIONS: dict[int, str] = {
     1: """
@@ -128,5 +128,11 @@ ALTER TABLE messages ADD COLUMN tool_calls_json TEXT NOT NULL DEFAULT '[]';
     3: """
 ALTER TABLE sessions ADD COLUMN workspace TEXT;
 CREATE INDEX idx_sessions_workspace_updated ON sessions(workspace, updated_at DESC);
+""",
+    4: """
+ALTER TABLE sessions ADD COLUMN goal TEXT;
+ALTER TABLE sessions ADD COLUMN goal_status TEXT NOT NULL DEFAULT 'inactive'
+    CHECK (goal_status IN ('inactive', 'active', 'completed'));
+ALTER TABLE sessions ADD COLUMN goal_updated_at TEXT;
 """,
 }

@@ -146,6 +146,7 @@ class DesktopController(QObject):
     attachmentsChanged = Signal()
     planChanged = Signal()
     contextChanged = Signal()
+    goalChanged = Signal()
     workspaceChanged = Signal()
     errorOccurred = Signal(str)
     approvalRequested = Signal(str)
@@ -184,8 +185,12 @@ class DesktopController(QObject):
         self._status = "准备就绪"
         self._current_session_id = ""
         self._current_session_title = "新任务"
+        self._current_session_provider = ""
+        self._current_session_model = ""
         self._preview = False
         self._config = load_config()
+        self._current_session_provider = self._config.default_provider
+        self._current_session_model = self._config.default_model
         self._restore_saved_workspace()
         self._stream_text = ""
         self._runner_lock = threading.Lock()
@@ -198,6 +203,13 @@ class DesktopController(QObject):
         self._queue_paused = False
         self._last_plan = ""
         self._context_summary = "尚未运行任务"
+        self._context_tokens = 0
+        self._context_budget = 0
+        self._context_ratio = 0.0
+        self._context_source_count = 0
+        self._context_compacted = False
+        self._current_goal = ""
+        self._goal_status = "inactive"
         self._base_context_items: list[dict[str, object]] = []
         self._all_skills: list[SkillSummary] = []
         self._refresh_skills()
@@ -260,6 +272,38 @@ class DesktopController(QObject):
     def contextSummary(self) -> str:
         return self._context_summary
 
+    @Property(int, notify=contextChanged)
+    def contextTokens(self) -> int:
+        return self._context_tokens
+
+    @Property(int, notify=contextChanged)
+    def contextBudget(self) -> int:
+        return self._context_budget
+
+    @Property(float, notify=contextChanged)
+    def contextUsageRatio(self) -> float:
+        return self._context_ratio
+
+    @Property(int, notify=contextChanged)
+    def contextSourceCount(self) -> int:
+        return self._context_source_count
+
+    @Property(bool, notify=contextChanged)
+    def contextCompacted(self) -> bool:
+        return self._context_compacted
+
+    @Property(str, notify=goalChanged)
+    def currentGoal(self) -> str:
+        return self._current_goal
+
+    @Property(str, notify=goalChanged)
+    def goalStatus(self) -> str:
+        return self._goal_status
+
+    @Property(bool, notify=goalChanged)
+    def hasActiveGoal(self) -> bool:
+        return bool(self._current_goal) and self._goal_status == "active"
+
     @Property(str, notify=statusChanged)
     def statusText(self) -> str:
         return self._status
@@ -271,6 +315,14 @@ class DesktopController(QObject):
     @Property(str, notify=currentSessionChanged)
     def currentSessionTitle(self) -> str:
         return self._current_session_title
+
+    @Property(str, notify=currentSessionChanged)
+    def currentSessionProvider(self) -> str:
+        return self._current_session_provider
+
+    @Property(str, notify=currentSessionChanged)
+    def currentSessionModel(self) -> str:
+        return self._current_session_model
 
     @Property(str, notify=workspaceChanged)
     def workspacePath(self) -> str:
@@ -319,6 +371,14 @@ class DesktopController(QObject):
             for name, model in sorted(self._config.models.items())
             if model.provider == provider
         ]
+
+    @Slot(str, result=str)
+    def modelDescription(self, name: str) -> str:
+        model = self._config.models.get(name)
+        if model is None:
+            return "未知模型"
+        window = f"{model.context_window:,} context" if model.context_window else "context 未知"
+        return f"{model.provider} · {model.model} · {window}"
 
     @Slot(str, bool)
     def addImage(self, value: str, send_to_model: bool) -> None:
@@ -375,6 +435,9 @@ class DesktopController(QObject):
         self._save_workspace(path)
         self._current_session_id = ""
         self._current_session_title = path.name or "新任务"
+        self._current_session_provider = self._config.default_provider
+        self._current_session_model = self._config.default_model
+        self._set_goal_state("", "inactive")
         self.messages.replace([])
         self.changes.replace([])
         self.clearAttachments()
@@ -403,6 +466,9 @@ class DesktopController(QObject):
             return
         self._current_session_id = ""
         self._current_session_title = "新任务"
+        self._current_session_provider = self._config.default_provider
+        self._current_session_model = self._config.default_model
+        self._set_goal_state("", "inactive")
         self.messages.replace([])
         self.changes.replace([])
         self._reset_runtime_context()
@@ -434,6 +500,22 @@ class DesktopController(QObject):
             workflow = self._config.default_workflow
         prompt = prompt.strip()
         if not prompt:
+            return
+        if prompt == "/goal":
+            if self._current_goal:
+                state = "进行中" if self._goal_status == "active" else "已完成"
+                self._set_status(f"当前目标 · {state}：{self._current_goal[:120]}")
+            else:
+                self._set_status("当前会话尚未设置目标")
+            return
+        if prompt.startswith("/goal "):
+            command = prompt[6:].strip()
+            if command in {"done", "complete", "完成"}:
+                self.completeGoal()
+            elif command in {"clear", "remove", "清除"}:
+                self.clearGoal()
+            else:
+                self.setGoal(command)
             return
         if provider not in self._config.providers:
             self.errorOccurred.emit(f"未知 Provider：{provider}")
@@ -472,6 +554,34 @@ class DesktopController(QObject):
             selected_policy,
             attachments,
         )
+
+    @Slot(str)
+    def setGoal(self, goal: str) -> None:
+        normalized = goal.strip()
+        if not normalized:
+            self.errorOccurred.emit("目标不能为空")
+            return
+        if len(normalized) > 4_000:
+            self.errorOccurred.emit("目标不能超过 4000 个字符")
+            return
+        self._set_goal_state(normalized, "active")
+        self._persist_goal_if_needed()
+        self._set_status("目标已设为进行中")
+
+    @Slot()
+    def completeGoal(self) -> None:
+        if not self._current_goal:
+            self.errorOccurred.emit("当前会话没有可完成的目标")
+            return
+        self._set_goal_state(self._current_goal, "completed")
+        self._persist_goal_if_needed()
+        self._set_status("目标已完成")
+
+    @Slot()
+    def clearGoal(self) -> None:
+        self._set_goal_state("", "inactive")
+        self._persist_goal_if_needed()
+        self._set_status("目标已清除")
 
     def _start_message(
         self,
@@ -647,6 +757,9 @@ class DesktopController(QObject):
         )
         self._current_session_id = "preview-1"
         self._current_session_title = "桌面应用重构"
+        self._current_session_provider = "mock"
+        self._current_session_model = "mock-default"
+        self._set_goal_state("交付一个可双击启动、可审阅改动的本地 Agent 工作台", "active")
         self.messages.replace(
             [
                 _message_item("user", "把终端界面重做成真正可以双击启动的桌面应用。", False),
@@ -679,6 +792,13 @@ class DesktopController(QObject):
             },
         ]
         self.instructions.replace(self._base_context_items)
+        self._context_tokens = 1_284
+        self._context_budget = 27_904
+        self._context_ratio = self._context_tokens / self._context_budget
+        self._context_source_count = len(self._base_context_items) + 5
+        self._context_compacted = False
+        self._context_summary = "1,284/27,904 tokens"
+        self.contextChanged.emit()
         self.changes.replace(
             [
                 {
@@ -781,6 +901,23 @@ class DesktopController(QObject):
         ).list_for_session(session_id)
         return {"changes": [_change_item(item) for item in items]}
 
+    async def _save_goal(
+        self,
+        session_id: str,
+        goal: str,
+        status: str,
+    ) -> dict[str, object]:
+        database = Database(database_file())
+        await database.initialize()
+        updated = await SessionRepository(database).update_goal(
+            session_id,
+            goal or None,
+            status=status,
+        )
+        if not updated:
+            raise KeyError(f"会话不存在：{session_id}")
+        return {"goal": goal, "goal_status": status}
+
     async def _restore_change(self, record_id: str, session_id: str) -> dict[str, object]:
         database = Database(database_file())
         await database.initialize()
@@ -845,6 +982,9 @@ class DesktopController(QObject):
             approval_handler=self._request_approval,
             runner_sink=runner_sink,
             config_override=self._config,
+            session_goal=self._current_goal or None,
+            session_goal_status=self._goal_status,
+            allow_session_model_switch=True,
         )
         result["mode"] = mode.value
         result["workflow_id"] = workflow
@@ -926,10 +1066,13 @@ class DesktopController(QObject):
             sessions = payload.get("sessions", [])
             if isinstance(sessions, list):
                 self.sessions.replace(sessions)
-            instructions = payload.get("instructions", [])
+            instructions = payload.get("instructions")
             if isinstance(instructions, list):
                 self._base_context_items = instructions
                 self.instructions.replace(self._base_context_items)
+                if self._context_budget == 0:
+                    self._context_source_count = len(self._base_context_items)
+                    self.contextChanged.emit()
             if not self._busy:
                 self._set_status("准备就绪")
         elif kind == "open_session":
@@ -939,6 +1082,12 @@ class DesktopController(QObject):
             if isinstance(session, dict) and isinstance(messages, list):
                 self._current_session_id = str(session["sessionId"])
                 self._current_session_title = str(session["title"])
+                self._current_session_provider = str(session.get("provider", ""))
+                self._current_session_model = str(session.get("model", ""))
+                self._set_goal_state(
+                    str(session.get("goal", "")),
+                    str(session.get("goalStatus", "inactive")),
+                )
                 self.messages.replace(messages)
                 if isinstance(changes, list):
                     self.changes.replace(changes)
@@ -952,6 +1101,8 @@ class DesktopController(QObject):
             else:
                 self.messages.update_last(content=self._stream_text, pending=False)
             self._current_session_id = str(payload.get("session_id", ""))
+            self._current_session_provider = str(payload.get("provider", ""))
+            self._current_session_model = str(payload.get("model", ""))
             self.currentSessionChanged.emit()
             self._set_busy(False)
             usage = payload.get("usage", {})
@@ -969,8 +1120,20 @@ class DesktopController(QObject):
                     )
                 estimated = context.get("estimated_tokens", 0)
                 budget = context.get("budget_tokens", 0)
+                self._context_tokens = _safe_int(estimated)
+                self._context_budget = _safe_int(budget)
+                ratio = context.get("usage_ratio", 0.0)
+                self._context_ratio = (
+                    float(ratio)
+                    if isinstance(ratio, int | float) and not isinstance(ratio, bool)
+                    else 0.0
+                )
+                self._context_source_count = len(sources) if isinstance(sources, list) else 0
+                self._context_compacted = bool(context.get("compacted"))
                 compacted = " · 已压缩" if context.get("compacted") else ""
-                self._context_summary = f"{estimated}/{budget} tokens{compacted}"
+                self._context_summary = (
+                    f"{self._context_tokens:,}/{self._context_budget:,} tokens{compacted}"
+                )
                 self.contextChanged.emit()
             self._clear_runner()
             self._submit("sessions", lambda: self._load_sessions(None))
@@ -992,6 +1155,12 @@ class DesktopController(QObject):
             if isinstance(session, dict) and isinstance(messages, list):
                 self._current_session_id = str(session["sessionId"])
                 self._current_session_title = str(session["title"])
+                self._current_session_provider = str(session.get("provider", ""))
+                self._current_session_model = str(session.get("model", ""))
+                self._set_goal_state(
+                    str(session.get("goal", "")),
+                    str(session.get("goalStatus", "inactive")),
+                )
                 self.messages.replace(messages)
                 self.changes.replace([])
                 self._reset_runtime_context()
@@ -1023,6 +1192,11 @@ class DesktopController(QObject):
     def _reset_runtime_context(self) -> None:
         self.instructions.replace(self._base_context_items)
         self._context_summary = "会话上下文将在下次运行时刷新"
+        self._context_tokens = 0
+        self._context_budget = 0
+        self._context_ratio = 0.0
+        self._context_source_count = len(self._base_context_items)
+        self._context_compacted = False
         self.contextChanged.emit()
 
     def _refresh_attachments(self) -> None:
@@ -1078,6 +1252,21 @@ class DesktopController(QObject):
         except OSError as exc:
             self.errorOccurred.emit(f"项目已打开，但无法保存最近项目：{exc}")
 
+    def _set_goal_state(self, goal: str, status: str) -> None:
+        if (self._current_goal, self._goal_status) == (goal, status):
+            return
+        self._current_goal = goal
+        self._goal_status = status
+        self.goalChanged.emit()
+
+    def _persist_goal_if_needed(self) -> None:
+        if not self._current_session_id:
+            return
+        session_id = self._current_session_id
+        goal = self._current_goal
+        status = self._goal_status
+        self._submit("goal", lambda: self._save_goal(session_id, goal, status))
+
     def _set_busy(self, value: bool) -> None:
         if self._busy != value:
             self._busy = value
@@ -1095,6 +1284,10 @@ def _session_item(session: SessionRecord) -> dict[str, object]:
         "title": session.title,
         "detail": f"{session.model} · {session.mode}",
         "updated": _relative_time(session.updated_at),
+        "goal": session.goal or "",
+        "goalStatus": session.goal_status,
+        "provider": session.provider,
+        "model": session.model,
     }
 
 

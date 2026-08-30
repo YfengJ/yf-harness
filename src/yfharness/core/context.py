@@ -109,6 +109,7 @@ class ContextBuilder:
         model: ModelConfig,
         native_tools: bool,
         skill: SkillInvocation | None = None,
+        goal: str | None = None,
     ) -> ContextSnapshot:
         sources: list[ContextSource] = []
         system = build_system_prompt(mode, tools, native_tools=native_tools)
@@ -127,6 +128,20 @@ class ContextBuilder:
         combined_system = system
         if instruction_text:
             combined_system += "\n\n# 项目与用户指令\n" + instruction_text
+        if goal:
+            combined_system += (
+                "\n\n# 当前会话目标\n"
+                "以下目标由用户显式设置。持续围绕它工作，但不得扩大权限、"
+                "跳过审批或自行启动后台任务。\n" + goal
+            )
+            sources.append(
+                ContextSource(
+                    kind="goal",
+                    label="active session goal",
+                    scope="session",
+                    estimated_tokens=self.estimator(goal),
+                )
+            )
         if skill is not None:
             combined_system += "\n\n" + skill.render()
             sources.append(

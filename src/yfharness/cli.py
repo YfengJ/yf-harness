@@ -337,6 +337,9 @@ async def _run_once(
     approval_handler: Callable[[ApprovalRequest], Awaitable[ApprovalDecision]] | None = None,
     runner_sink: Callable[[AgentRunner], None] | None = None,
     config_override: AppConfig | None = None,
+    session_goal: str | None = None,
+    session_goal_status: str = "inactive",
+    allow_session_model_switch: bool = False,
 ) -> dict[str, object]:
     config = config_override or load_config()
     workflow = config.workflow(workflow_name)
@@ -374,6 +377,11 @@ async def _run_once(
         if skill_name is not None
         else None
     )
+    effective_goal = (
+        session_goal.strip()
+        if session_goal is not None and session_goal_status == "active" and session_goal.strip()
+        else None
+    )
     if session_id is not None and not save:
         raise ValueError("--session requires --save")
     if save:
@@ -391,18 +399,35 @@ async def _run_once(
                 model=model_name,
                 mode=mode.value,
                 workspace=config.workspace,
+                goal=session_goal,
+                goal_status=session_goal_status,
             )
             session_id = session_record.id
         else:
             existing_session = await session_repo.get(session_id)
             if existing_session is None:
                 raise KeyError(f"session not found: {session_id}")
-            if (existing_session.provider, existing_session.model) != (provider_name, model_name):
-                raise ValueError("existing session provider/model does not match requested values")
             if existing_session.workspace is not None and (
                 existing_session.workspace != str(guard.root)
             ):
                 raise ValueError("existing session belongs to a different workspace")
+            provider_or_model_changed = (
+                existing_session.provider,
+                existing_session.model,
+            ) != (provider_name, model_name)
+            if provider_or_model_changed and not allow_session_model_switch:
+                raise ValueError("existing session provider/model does not match requested values")
+            if allow_session_model_switch and (
+                provider_or_model_changed or existing_session.mode != mode.value
+            ):
+                await session_repo.update_runtime(
+                    session_id,
+                    provider=provider_name,
+                    model=model_name,
+                    mode=mode.value,
+                )
+            if session_goal is None and existing_session.goal_status == "active":
+                effective_goal = existing_session.goal
             history = await session_repo.messages(session_id)
         run_record = await run_repo.create(session_id)
     else:
@@ -511,6 +536,7 @@ async def _run_once(
             existing_run=run_record,
             attachments=attachments,
             skill=skill_invocation,
+            goal=effective_goal,
         )
         logger.info(
             "agent run finished",

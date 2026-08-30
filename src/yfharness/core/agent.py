@@ -152,6 +152,7 @@ class AgentRunner:
         existing_run: AgentRun | None = None,
         attachments: list[ContentPart] | None = None,
         skill: SkillInvocation | None = None,
+        goal: str | None = None,
     ) -> AgentRunResult:
         if not user_input.strip():
             raise ValueError("user_input must not be empty")
@@ -171,6 +172,7 @@ class AgentRunner:
                 model=self.model,
                 native_tools=native_tools,
                 skill=skill,
+                goal=goal,
             )
             messages = snapshot.messages
             initial_compacted = snapshot.compacted
@@ -178,6 +180,8 @@ class AgentRunner:
             system_prompt = build_system_prompt(self.mode, definitions, native_tools=native_tools)
             if skill is not None:
                 system_prompt += "\n\n" + skill.render()
+            if goal:
+                system_prompt += "\n\n# 当前会话目标\n" + goal
             messages = list(history or [])
             if self.model.supports_system_message:
                 messages.insert(0, Message.text(MessageRole.SYSTEM, system_prompt))

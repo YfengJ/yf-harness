@@ -1,5 +1,24 @@
 # 发现与决策
 
+## 阶段 16：Composer 工作流控制与持久目标（2026-08-30）
+- OpenAI 官方将模型选择与 `reasoning.effort` 分开建模；GPT-5.6 当前提供 Sol/Terra/Luna 三个定位和独立推理强度，因此 UI 不应把“模型”与“运行模式/推理深度”混成同一个选择器。[官方模型目录](https://developers.openai.com/api/docs/models)
+- OpenAI Responses 官方接口返回 `usage`，并将 `model`、`reasoning`、`previous_response_id` 和 context management 分开；上下文概览应来自真实快照/使用量，不能用固定百分比模拟。[Responses API](https://developers.openai.com/api/reference/cli/resources/responses/methods/create)
+- OpenAI 官方用例把 Follow a goal 描述为给 Codex 一个适合长期工作的 durable objective；YF-Harness 的 `/goal` 应是可恢复的会话状态，而不是一次性把字符串塞进 Prompt。[Codex/ChatGPT 用例目录](https://learn.chatgpt.com/use-cases)
+- 现有核心已经有 `AgentMode.PLAN`、Plan 工作流、只读工具安全测试、计划保存与“执行此计划”；本次只需把入口移到 Composer 并保持原安全契约。
+- 现有桌面控制台已经持有 Provider、Model、Workflow、Mode、Permissions 五个选择器；Composer 发送函数直接读取这些 QML 控件，因此可以通过单一状态源复用，避免两套选择不同步。
+- `DesktopController.contextSummary` 当前只保存字符串，ContextSnapshot 完成后可取得 estimated/budget/compacted 和来源列表；要支持输入框概览，需要暴露结构化 token、budget、ratio、sourceCount 属性。
+- SQLite 当前 schema v3 的 sessions 只有 provider/model/mode/workspace 等字段，没有 Goal；应用设置是全局键值，不适合会话隔离，正确方向是 schema v4 给 sessions 增加可空 goal、goal_status、goal_updated_at。
+- 初始仓库 `main` 工作树干净；自动 Change Radar P3/0 只是无差异基线，实施会跨 migration/repository/controller/QML，人工风险按 P1。
+- 阶段 16 第一张 2960×1648 开发截图确认 Composer 在 1480px 窗口中可以同时容纳图片、Agent/Plan、活动 Goal、模型、上下文百分比和发送；铜金只用于活动 Goal/Plan，不破坏 0.7 的精密编辑台层级。
+- Goal 文本采用最大宽度与省略号，长目标不会挤走模型或发送；上下文入口显示真实 `ContextSnapshot.usage_ratio`，截图预览为 5%，不是硬编码的装饰进度。
+- QML lint 发现 Goal/Context 两个 Popup 作为 `ColumnLayout` 词法子项时设置 x/y/width；运行 smoke 正常，但该结构存在未定义布局行为，需通过显式 Overlay parent 或移到根级消除。
+- 运行完成会异步刷新会话列表；旧处理把 `_load_sessions` 中缺失的 `instructions` 当成空列表，覆盖刚写入 UI 的真实 ContextSnapshot 来源。修正后只有 bootstrap/workspace 的显式 instructions 才更新基础来源。
+- 发布复查发现现有桌面模型选择器虽然可选择，但旧会话会被 `_run_once` 的 provider/model 一致性检查拒绝；现在只有桌面显式允许会话运行时切换，CLI 保留原严格契约，并同时持久化 provider、model 与 mode。
+- schema v4 的旧库升级、Goal 创建/完成/清除/分支恢复、Plan 上下文注入、模型切换和结构化上下文概览已有直接测试；活动 Goal 只进入 system context，不改写用户消息，也不扩大工具或审批权限。
+- 0.8.0 本地最终证据为 158 项测试、82.87% 覆盖率、20/20 Eval、sdist/wheel 与 235 MiB macOS App；真实 Bundle 生成的 2960×1648 截图确认 Composer 控件完整且未造成布局回退。
+- 最终 Change Radar 为 P1/30 且无 blocking gaps；P1 来自预期的依赖元数据和运行路径变化，不代表发现新的未解决安全缺陷。
+- 发布元数据复核发现部署器只生成 `CFBundleShortVersionString`；构建脚本现在从包版本同时写入并验证 `CFBundleVersion`，避免 App 更新/签名工具看到不完整版本元数据。
+
 ## 需求基线
 - 项目名 YF-Harness，包名 `yfharness`，CLI 名 `yfh`，默认简体中文，代码/API 使用英文，MIT。
 - 必须离线可用：MockProvider 是测试、演示与无密钥验收的基础。

@@ -14,6 +14,9 @@ class SessionRecord(DomainModel):
     model: str
     mode: str
     workspace: str | None = None
+    goal: str | None = None
+    goal_status: str = "inactive"
+    goal_updated_at: datetime | None = None
     archived: bool
     created_at: datetime
     updated_at: datetime

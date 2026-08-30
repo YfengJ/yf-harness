@@ -14,6 +14,7 @@ pytest.importorskip("PySide6")
 from PySide6.QtCore import QCoreApplication
 from PySide6.QtGui import QGuiApplication
 
+from yfharness.core.models import ModelConfig
 from yfharness.desktop.controller import DesktopController, DictListModel
 
 
@@ -55,6 +56,18 @@ def test_desktop_controller_runs_and_persists_mock_task(
     assert controller.defaultWorkflow == "balanced"
     assert controller.workflowMode("plan") == "plan"
     assert controller.workflowPermissions("guarded") == "always_ask"
+    assert "32,000 context" in controller.modelDescription("mock-default")
+
+    controller.sendMessage(
+        "/goal Ship a focused desktop workflow",
+        "mock",
+        "mock-default",
+        "balanced",
+        "agent",
+        "safe_auto",
+    )
+    assert controller.hasActiveGoal
+    assert controller.currentGoal == "Ship a focused desktop workflow"
 
     controller.sendMessage(
         "Desktop mock task",
@@ -71,6 +84,59 @@ def test_desktop_controller_runs_and_persists_mock_task(
     assert "MockProvider" in str(_item(controller.messages, 1)["content"])
     assert controller.statusText.startswith("已完成")
     _wait_until(lambda: controller.sessions.rowCount() == 1)
+    assert controller.contextTokens > 0
+    assert controller.contextBudget > controller.contextTokens
+    assert controller.contextSourceCount > 0
+    assert any(
+        _item(controller.instructions, row)["source"] == "goal"
+        for row in range(controller.instructions.rowCount())
+    )
+
+    session_id = controller.currentSessionId
+    controller.newSession()
+    assert not controller.hasActiveGoal
+    controller.openSession(session_id)
+    _wait_until(lambda: controller.currentSessionId == session_id)
+    assert controller.currentGoal == "Ship a focused desktop workflow"
+    controller.completeGoal()
+    _wait_until(lambda: controller.goalStatus == "completed")
+    controller.clearGoal()
+    assert controller.currentGoal == ""
+    controller.shutdown()
+
+
+@pytest.mark.desktop
+def test_desktop_can_switch_configured_model_in_existing_session(
+    qt_application: QGuiApplication,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("YFH_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("YFH_DATA_DIR", str(tmp_path / "data"))
+    controller = DesktopController()
+    controller._config.models["mock-fast"] = ModelConfig(
+        id="mock-fast",
+        provider="mock",
+        model="mock-fast",
+        supports_native_tools=True,
+        context_window=16_000,
+        max_output_tokens=2_048,
+    )
+
+    controller.sendMessage("Start", "mock", "mock-default", "agent", "safe_auto")
+    _wait_until(lambda: not controller.busy and bool(controller.currentSessionId))
+    controller.sendMessage(
+        "Continue with the faster model",
+        "mock",
+        "mock-fast",
+        "balanced",
+        "agent",
+        "safe_auto",
+    )
+    _wait_until(lambda: not controller.busy and controller.currentSessionModel == "mock-fast")
+
+    assert controller.messages.rowCount() == 4
+    assert controller.modelDescription("mock-fast").endswith("16,000 context")
     controller.shutdown()
 
 
@@ -265,6 +331,13 @@ def test_desktop_qml_smoke_starts_without_runtime_errors(tmp_path: Path) -> None
     assert "failed to load" not in completed.stderr.lower()
     assert "TypeError" not in completed.stderr
     assert "ReferenceError" not in completed.stderr
+    qml = (
+        Path(__file__).parents[2] / "src" / "yfharness" / "desktop" / "qml" / "Main.qml"
+    ).read_text(encoding="utf-8")
+    assert all(
+        f'objectName: "{name}"' in qml
+        for name in ("composerMode", "composerGoal", "composerModel", "composerContext")
+    )
 
 
 @pytest.mark.desktop

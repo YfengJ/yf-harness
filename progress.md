@@ -2,8 +2,8 @@
 
 ## 当前状态
 
-- 当前阶段：阶段 15（桌面界面二次重构，已完成）
-- 整体状态：0.7.0 桌面界面重构、macOS App、私密 GitHub 发布与八项远端 CI 全部完成
+- 当前阶段：阶段 16（Composer 工作流控制与持久目标，本地发布门完成）
+- 整体状态：0.8.0 功能、全量质量门与 macOS App 已完成；待推送私密 GitHub 并确认远端 CI
 - 初始仓库：空目录、非 Git 仓库
 - 当前风险：P1（安全边界、子进程、持久化、CLI/TUI 公共契约）
 
@@ -16,6 +16,19 @@
 - 完成阶段 0 的规划、风险、契约和验收基线。
 
 ## 当前进行
+
+- 已按用户要求先规划后执行：官方语义、现有 Controller/QML、AgentMode、ContextSnapshot 与 SQLite 契约已经完成首轮审计。
+- 阶段 16 采用“复用现有 Plan/模型/上下文能力 + 新增会话级 Goal 持久化”，不复制 AgentRunner，也不扩大权限边界。
+- 初始工作树干净；Change Radar 为 P3/0，但由于需要数据库迁移和桌面发送路径联动，人工按 P1 管理。
+- 规划技能的 session catchup 仍不支持 Codex 原生 session；已从三份持续规划文件恢复，不影响本次工作。
+- 阶段 16 首轮后端专项 24 passed；核心与桌面 mypy 通过。Ruff 仅发现 Goal 文案全角括号和一处机械格式差异，已按项目规则修正。
+- 阶段 16 开发入口 QML smoke 与真实截图成功；Composer 已展示 Agent/Plan、Goal、模型和 5% 上下文。qmllint 发现两个 Popup 的 Layout 定位警告，正在按规范修复。
+- Popup 已移入显式零尺寸承载项并 reparent 到 Overlay，布局警告过滤与 smoke 均通过；模型切换测试初次污染既有消息计数，已拆成独立用例。
+- Goal 来源断言发现会话列表刷新会把运行上下文清空；根因是缺失字段使用 `[]` 默认值，已改为只在 bootstrap/workspace 明确返回 instructions 时更新。
+- 发布复查发现同一模型下切换 Agent/Plan 时会话元数据可能保留旧模式；已让桌面显式切换原子同步 provider/model/mode，同时保持 CLI 的旧会话模型严格校验。
+- 0.8.0 完整本地门通过：158 passed、82.87% 覆盖率，Ruff/format、核心 68 文件与桌面 3 文件 mypy、20/20 Eval、sdist/wheel 全部成功。
+- 0.8.0 macOS `YF-Harness.app` 已重建为 235 MiB；Plist 版本 0.8.0、Bundle ID、ad-hoc codesign、Bundle 直接启动截图和视觉检查全部通过。
+- 最终 Change Radar 为 P1/30 且无 blocking gaps；风险来自预期的锁文件、迁移与桌面运行路径，均已有专项与全量证据。
 
 - 用户否定 0.6.0 当前 UI；已启动桌面二次重构，目标是去除调试面板感、压缩无效空白并强化消息流和输入器的任务主线。
 - 当前工作树起点干净；Change Radar 无差异时为 P3/0，本次按 QML 公共交互契约人工标记 P2。
@@ -166,6 +179,10 @@
 | 2026-08-30 | 0.7.0 macOS App | 236 MiB Bundle；Plist 0.7.0、Bundle ID、ad-hoc codesign、Bundle 主画布/控制台截图与视觉检查通过 |
 | 2026-08-30 | 0.7.0 Change Radar | P1/40，无 blocking gaps；锁文件、桌面运行和用户界面均有直接验证证据 |
 | 2026-08-30 | 最终 0.7.0 CI `33309580532` | minimal-install、desktop-smoke 与 Linux/macOS/Windows × Python 3.12/3.13 八个 Job 全绿 |
+| 2026-08-31 | 0.8.0 本地发布门 | 158 passed、82.87% 覆盖率；Ruff/format、核心 68 文件与桌面 3 文件 mypy 全部通过 |
+| 2026-08-31 | 0.8.0 Eval/构建 | 20/20 Eval；0.8.0 sdist/wheel 成功 |
+| 2026-08-31 | 0.8.0 macOS App | 235 MiB Bundle；Plist 0.8.0、Bundle ID、ad-hoc codesign、Bundle 截图与视觉检查通过 |
+| 2026-08-31 | 0.8.0 Change Radar | P1/30，无 blocking gaps；迁移、锁文件、桌面运行和界面契约均有直接验证证据 |
 
 ## 错误与修复
 

@@ -6,6 +6,24 @@
 
 - 等待社区反馈与首个补丁版本。
 
+## [0.8.0] - 2026-08-30
+
+### Added
+
+- Composer 内 Agent/Plan 快速切换、当前 Provider 模型选择器与真实上下文概览。
+- 会话级 `/goal`：支持设置、查看、完成和清除，并随会话/分支持久化。
+- SQLite v4 Goal 字段与 ContextSnapshot 结构化桌面属性。
+
+### Changed
+
+- Plan、模型和上下文从右侧控制台的低频设置提升到输入框底栏；控制台继续保留完整高级配置。
+- 上下文入口展示真实 Token 预算、使用比例、来源数量和压缩状态，新会话明确显示待刷新。
+
+### Security
+
+- 活动 Goal 作为显式会话上下文注入，但不能扩大 mode、Workflow、Hook、审批或 WorkspaceGuard 权限。
+- Plan 快捷切换继续使用现有只读工具边界，必须经过显式 Plan→Execute 才能进入写入模式。
+
 ## [0.7.0] - 2026-08-30
 
 ### Changed
