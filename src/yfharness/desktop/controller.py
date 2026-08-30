@@ -737,7 +737,7 @@ class DesktopController(QObject):
         self._set_status("配置已刷新")
 
     @Slot()
-    def seedPreview(self) -> None:
+    def seedPreview(self, stress: bool = False) -> None:
         self._preview = True
         self.sessions.replace(
             [
@@ -756,10 +756,22 @@ class DesktopController(QObject):
             ]
         )
         self._current_session_id = "preview-1"
-        self._current_session_title = "桌面应用重构"
+        self._current_session_title = (
+            "为多个窗口尺寸重新组织桌面工作区并确保所有长文本和操作控件都保持在边界内"
+            if stress
+            else "桌面应用重构"
+        )
         self._current_session_provider = "mock"
         self._current_session_model = "mock-default"
-        self._set_goal_state("交付一个可双击启动、可审阅改动的本地 Agent 工作台", "active")
+        self._set_goal_state(
+            (
+                "交付一个可双击启动、支持 Plan 与持久目标、能够在狭窄窗口中容纳超长会话名称、"
+                "模型名称、上下文状态和所有核心动作且绝不出现水平溢出的本地 Agent 工作台"
+                if stress
+                else "交付一个可双击启动、可审阅改动的本地 Agent 工作台"
+            ),
+            "active",
+        )
         self.messages.replace(
             [
                 _message_item("user", "把终端界面重做成真正可以双击启动的桌面应用。", False),

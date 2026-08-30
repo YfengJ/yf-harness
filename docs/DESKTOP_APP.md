@@ -1,6 +1,6 @@
 # 桌面应用
 
-YF-Harness 0.8 将 Qt Quick 桌面窗口作为主要交互入口。它不是网页壳，也不需要先打开终端窗口；
+YF-Harness 0.9 将 Qt Quick 桌面窗口作为主要交互入口。它不是网页壳，也不需要先打开终端窗口；
 打包后的 `YF-Harness.app` 包含 Python、Qt 与项目运行时，可以从 Finder 双击启动。
 
 ## 直接运行源码
@@ -26,10 +26,10 @@ workspace 和安全策略继续读取同一套 YF-Harness 配置。
 ```
 
 脚本会锁定并安装 `desktop-build` extra，使用 Qt 官方 `pyside6-deploy` / Nuitka 生成
-`dist/YF-Harness.app`，写入应用名、`local.yfharness.desktop` Bundle Identifier 和 0.8.0 版本，
+`dist/YF-Harness.app`，写入应用名、`local.yfharness.desktop` Bundle Identifier 和 0.9.0 版本，
 再执行 ad-hoc 签名、Plist 校验与 LaunchServices 启动 smoke。
 
-0.8 构建继续显式排除未使用的 WebEngine、Quick3D、Charts、Sensors 与 Test 顶层二进制，
+0.9 构建继续显式排除未使用的 WebEngine、Quick3D、Charts、Sensors 与 Test 顶层二进制，
 并以 320 MiB 为发布门禁。本机验证产物为 235 MB；不同 Qt 补丁版本可能有少量波动。
 
 构建完成后可执行：
@@ -49,6 +49,7 @@ Developer ID Application 证书重新签名，并提交 Apple notarization。项
 - 会话与消息仍写入同一个 SQLite Repository；CLI、TUI 与桌面版可以读取相同历史。
 - 新会话记录所属 workspace；桌面和 TUI 只列出当前项目会话，避免跨项目误执行。
 - `Esc` 优先取消当前运行，空闲时关闭控制台；`⌘/Ctrl+N` 新建任务，`⌘/Ctrl+Enter` 发送，`Ctrl+.` 打开或收起控制台。
+- `⌘/Ctrl+K` 打开命令中心；键盘上下选择、Enter 执行，搜索结果会跳过被过滤的动作。
 
 ## 0.7 精密编辑台
 
@@ -70,6 +71,15 @@ Developer ID Application 证书重新签名，并提交 Apple notarization。项
 - **持久 Goal：** 点击 `/goal` 编辑，或输入 `/goal <目标>`；`/goal done` 完成，`/goal clear` 清除。目标跟随当前会话与分支保存，不会自动启动任务或改变审批策略。
 - **模型：** Composer 直接列出当前 Provider 已配置的模型；完整 Provider、Workflow 和权限仍在控制台中管理。
 - **上下文：** 底栏显示最后一次真实快照的使用比例；展开后显示 Token 预算、剩余量、来源数量与压缩状态，点击可进入完整来源列表。新会话在实际运行前明确标为待刷新。
+
+## 0.9 蓝图工作室
+
+- **新视觉系统：** 暖白任务画布、海军蓝会话轨道、钴蓝行动色与薄荷绿安全状态，替换原石墨黑/铜金界面。
+- **响应式 Composer：** 输入、任务状态与动作分为三层；长 Goal、会话名和模型名使用实际宽度收缩，1040×720 起无水平越界。
+- **任务状态带：** Goal、真实上下文占用、来源、队列与运行状态持续可见，不再与发送按钮争抢同一行。
+- **命令中心：** `⌘/Ctrl+K` 集中提供新任务、Plan、Goal、变更审查、上下文、项目技能与切换项目。
+- **覆盖式检查器：** 运行、上下文与变更抽屉贴合窗口右侧打开，不改变主消息和 Composer 宽度。
+- **布局证据：** 截图入口支持 `--width`、`--height`、`--stress-preview` 与 `--layout-report`，回归测试验证 1040×720、1280×800、1480×824。
 
 ## 无头验证
 

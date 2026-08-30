@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -12,7 +13,7 @@ import pytest
 pytest.importorskip("PySide6")
 
 from PySide6.QtCore import QCoreApplication
-from PySide6.QtGui import QGuiApplication
+from PySide6.QtGui import QGuiApplication, QImage
 
 from yfharness.core.models import ModelConfig
 from yfharness.desktop.controller import DesktopController, DictListModel
@@ -336,7 +337,18 @@ def test_desktop_qml_smoke_starts_without_runtime_errors(tmp_path: Path) -> None
     ).read_text(encoding="utf-8")
     assert all(
         f'objectName: "{name}"' in qml
-        for name in ("composerMode", "composerGoal", "composerModel", "composerContext")
+        for name in (
+            "commandCenter",
+            "composerMode",
+            "composerGoal",
+            "composerModel",
+            "composerContext",
+            "composerCommand",
+            "sendButton",
+            "sessionTitle",
+            "taskStatusBar",
+            "composerActions",
+        )
     )
 
 
@@ -372,5 +384,106 @@ def test_desktop_qml_renders_inspector_preview(tmp_path: Path) -> None:
 
     assert completed.returncode == 0, completed.stderr
     assert screenshot.stat().st_size > 10_000
+    assert "TypeError" not in completed.stderr
+    assert "ReferenceError" not in completed.stderr
+
+
+@pytest.mark.desktop
+def test_desktop_qml_renders_command_center_preview(tmp_path: Path) -> None:
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "QT_QPA_PLATFORM": "offscreen",
+            "QSG_RHI_BACKEND": "software",
+            "YFH_CONFIG_DIR": str(tmp_path / "config"),
+            "YFH_DATA_DIR": str(tmp_path / "data"),
+        }
+    )
+    screenshot = tmp_path / "command-center-preview.png"
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "yfharness.desktop.app",
+            "--screenshot",
+            str(screenshot),
+            "--preview-command",
+        ],
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=15,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert screenshot.stat().st_size > 10_000
+    assert "TypeError" not in completed.stderr
+    assert "ReferenceError" not in completed.stderr
+
+
+@pytest.mark.desktop
+@pytest.mark.parametrize(("width", "height"), [(1040, 720), (1280, 800), (1480, 824)])
+def test_desktop_qml_keeps_composer_inside_responsive_window(
+    tmp_path: Path,
+    width: int,
+    height: int,
+) -> None:
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "QT_QPA_PLATFORM": "offscreen",
+            "QSG_RHI_BACKEND": "software",
+            "YFH_CONFIG_DIR": str(tmp_path / "config"),
+            "YFH_DATA_DIR": str(tmp_path / "data"),
+        }
+    )
+    screenshot = tmp_path / f"responsive-{width}x{height}.png"
+    report = tmp_path / f"responsive-{width}x{height}.json"
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "yfharness.desktop.app",
+            "--screenshot",
+            str(screenshot),
+            "--layout-report",
+            str(report),
+            "--stress-preview",
+            "--width",
+            str(width),
+            "--height",
+            str(height),
+        ],
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=15,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    image = QImage(str(screenshot))
+    assert (image.width(), image.height()) == (width, height)
+    payload = json.loads(report.read_text(encoding="utf-8"))
+    expected_items = {
+        "sidebar",
+        "workspace",
+        "composer",
+        "promptInput",
+        "taskStatusBar",
+        "composerActions",
+        "sessionTitle",
+        "composerMode",
+        "composerGoal",
+        "composerModel",
+        "composerContext",
+        "composerCommand",
+        "sendButton",
+    }
+    assert expected_items <= set(payload["items"])
+    assert all(item["within_window"] for item in payload["items"].values())
     assert "TypeError" not in completed.stderr
     assert "ReferenceError" not in completed.stderr

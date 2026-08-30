@@ -133,7 +133,7 @@ class MCPClient:
             {
                 "protocolVersion": _PROTOCOL_VERSION,
                 "capabilities": {},
-                "clientInfo": {"name": "YF-Harness", "version": "0.8"},
+                "clientInfo": {"name": "YF-Harness", "version": "0.9"},
             },
             timeout_seconds=self.settings.startup_timeout,
         )

@@ -5,29 +5,42 @@ import QtQuick.Layouts
 
 ApplicationWindow {
     id: root
-    width: 1480
-    height: 920
-    minimumWidth: 980
-    minimumHeight: 700
+    width: 1440
+    height: 900
+    minimumWidth: 1040
+    minimumHeight: 720
     visible: true
     title: (controller ? controller.currentSessionTitle : "YF-Harness") + " — YF-Harness"
-    color: "#0A0C0E"
+    color: "#F4F1E8"
 
-    readonly property color canvas: "#0A0C0E"
-    readonly property color surface: "#101316"
-    readonly property color surfaceSoft: "#14181C"
-    readonly property color raised: "#191D21"
-    readonly property color line: "#272C31"
-    readonly property color lineStrong: "#373D43"
-    readonly property color textPrimary: "#F2EDE3"
-    readonly property color textSecondary: "#A9A49B"
-    readonly property color textMuted: "#716F6A"
-    readonly property color accent: "#D7A35C"
-    readonly property color accentSoft: "#3B2D1C"
-    readonly property color success: "#75B889"
+    readonly property color canvas: "#F4F1E8"
+    readonly property color surface: "#FFFFFF"
+    readonly property color surfaceSoft: "#ECEFF3"
+    readonly property color raised: "#E3E8EE"
+    readonly property color line: "#D4DAE2"
+    readonly property color lineStrong: "#B8C1CD"
+    readonly property color textPrimary: "#10223D"
+    readonly property color textSecondary: "#48586B"
+    readonly property color textMuted: "#768396"
+    readonly property color accent: "#2E63D3"
+    readonly property color accentHover: "#2557BE"
+    readonly property color accentSoft: "#E1EAFF"
+    readonly property color success: "#24866A"
+    readonly property color successSoft: "#DDF3EB"
+    readonly property color danger: "#B84A4A"
+    readonly property color nav: "#10223D"
+    readonly property color navSoft: "#183253"
+    readonly property color navText: "#F8F6EF"
+    readonly property color navMuted: "#9EADC0"
     property string approvalId: ""
     property int inspectorTab: 0
     property bool inspectorOpen: false
+    property bool commandOpen: false
+    property bool commandPreviewRequested: false
+    onCommandPreviewRequestedChanged: {
+        if (commandPreviewRequested)
+            Qt.callLater(function() { commandCenter.open() })
+    }
 
     function selectValue(combo, value) {
         var index = combo.find(value)
@@ -44,6 +57,61 @@ ApplicationWindow {
         promptInput.clear()
     }
 
+    function openInspector(tab) {
+        root.inspectorTab = tab
+        root.inspectorOpen = true
+    }
+
+    function runCommand(actionId) {
+        commandCenter.close()
+        if (actionId === "new") {
+            controller.newSession()
+            Qt.callLater(function() { promptInput.forceActiveFocus() })
+        } else if (actionId === "plan") {
+            root.selectValue(workflowSelect, "plan")
+            root.selectValue(modeSelect, "plan")
+            root.selectValue(permissionSelect, "deny_writes")
+            Qt.callLater(function() { promptInput.forceActiveFocus() })
+        } else if (actionId === "changes") {
+            root.openInspector(2)
+        } else if (actionId === "context") {
+            root.openInspector(1)
+        } else if (actionId === "skills") {
+            promptInput.text = "$"
+            controller.filterSkills("$")
+            Qt.callLater(function() { promptInput.forceActiveFocus() })
+        } else if (actionId === "goal") {
+            Qt.callLater(function() { goalPopup.open() })
+        } else if (actionId === "project") {
+            Qt.callLater(function() { projectFolderDialog.open() })
+        }
+    }
+
+    function selectFirstMatchingCommand() {
+        for (var i = 0; i < commandList.count; i++) {
+            var item = commandList.itemAtIndex(i)
+            if (item && item.queryMatch) {
+                commandList.currentIndex = i
+                return
+            }
+        }
+        commandList.currentIndex = -1
+    }
+
+    function moveCommandSelection(direction) {
+        if (commandList.count === 0)
+            return
+        var index = commandList.currentIndex
+        for (var step = 0; step < commandList.count; step++) {
+            index = (index + direction + commandList.count) % commandList.count
+            var item = commandList.itemAtIndex(index)
+            if (item && item.queryMatch) {
+                commandList.currentIndex = index
+                return
+            }
+        }
+    }
+
     component Hairline: Rectangle {
         color: root.line
         implicitHeight: 1
@@ -55,15 +123,19 @@ ApplicationWindow {
         property string label: ""
         property string glyph: ""
         property bool prominent: false
+        property bool onDark: false
         signal clicked()
         implicitWidth: buttonContent.implicitWidth + 28
         implicitHeight: 36
         radius: 7
-        color: prominent ? (buttonMouse.containsMouse ? "#E6B570" : root.accent)
-                         : (buttonMouse.containsMouse ? root.raised : "transparent")
-        border.width: prominent ? 0 : 1
-        border.color: root.line
+        color: prominent ? (buttonMouse.containsMouse ? root.accentHover : root.accent)
+                         : (buttonMouse.containsMouse
+                            ? (onDark ? root.navSoft : root.surfaceSoft) : "transparent")
+        border.width: activeFocus ? 2 : (prominent ? 0 : 1)
+        border.color: activeFocus ? (onDark ? "#8CB4FF" : root.accent)
+                                  : (onDark ? "#294563" : root.line)
         opacity: enabled ? 1 : 0.42
+        activeFocusOnTab: true
         Row {
             id: buttonContent
             anchors.centerIn: parent
@@ -71,13 +143,15 @@ ApplicationWindow {
             Text {
                 visible: quietButton.glyph.length > 0
                 text: quietButton.glyph
-                color: quietButton.prominent ? root.canvas : root.textSecondary
+                color: quietButton.prominent ? "#FFFFFF"
+                                             : (quietButton.onDark ? root.navMuted : root.textSecondary)
                 font.pixelSize: 13
                 font.weight: Font.DemiBold
             }
             Text {
                 text: quietButton.label
-                color: quietButton.prominent ? root.canvas : root.textPrimary
+                color: quietButton.prominent ? "#FFFFFF"
+                                             : (quietButton.onDark ? root.navText : root.textPrimary)
                 font.pixelSize: 12
                 font.weight: Font.DemiBold
             }
@@ -88,8 +162,11 @@ ApplicationWindow {
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
             enabled: quietButton.enabled
+            onPressed: quietButton.forceActiveFocus()
             onClicked: quietButton.clicked()
         }
+        Keys.onSpacePressed: clicked()
+        Keys.onReturnPressed: clicked()
         Behavior on color { ColorAnimation { duration: 120 } }
         scale: buttonMouse.pressed ? 0.97 : 1
         Behavior on scale { NumberAnimation { duration: 90 } }
@@ -100,17 +177,23 @@ ApplicationWindow {
         property string glyph: ""
         property string tooltip: ""
         property bool selected: false
+        property bool onDark: false
         signal clicked()
         implicitWidth: 34
         implicitHeight: 34
         radius: 7
-        color: selected ? root.accentSoft : (toolMouse.containsMouse ? root.raised : "transparent")
-        border.width: selected ? 1 : 0
-        border.color: selected ? "#6A4E2D" : "transparent"
+        color: selected ? (onDark ? root.navSoft : root.accentSoft)
+                        : (toolMouse.containsMouse
+                           ? (onDark ? root.navSoft : root.surfaceSoft) : "transparent")
+        border.width: activeFocus ? 2 : (selected ? 1 : 0)
+        border.color: activeFocus || selected ? (onDark ? "#8CB4FF" : root.accent)
+                                               : "transparent"
+        activeFocusOnTab: true
         Text {
             anchors.centerIn: parent
             text: toolButton.glyph
-            color: toolButton.selected ? root.accent : root.textSecondary
+            color: toolButton.onDark ? root.navText
+                                     : (toolButton.selected ? root.accent : root.textSecondary)
             font.pixelSize: 14
             font.weight: Font.DemiBold
         }
@@ -119,8 +202,11 @@ ApplicationWindow {
             anchors.fill: parent
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
+            onPressed: toolButton.forceActiveFocus()
             onClicked: toolButton.clicked()
         }
+        Keys.onSpacePressed: clicked()
+        Keys.onReturnPressed: clicked()
         ToolTip.visible: toolMouse.containsMouse && tooltip.length > 0
         ToolTip.text: tooltip
         Behavior on color { ColorAnimation { duration: 100 } }
@@ -137,8 +223,9 @@ ApplicationWindow {
         implicitHeight: 32
         radius: 8
         color: selected ? root.accentSoft : (chipMouse.containsMouse ? root.raised : "transparent")
-        border.width: 1
-        border.color: selected ? "#6A4E2D" : root.line
+        border.width: activeFocus ? 2 : 1
+        border.color: activeFocus || selected ? root.accent : root.line
+        activeFocusOnTab: true
         Row {
             id: chipRow
             anchors.centerIn: parent
@@ -165,8 +252,11 @@ ApplicationWindow {
             anchors.fill: parent
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
+            onPressed: composerChip.forceActiveFocus()
             onClicked: composerChip.clicked()
         }
+        Keys.onSpacePressed: clicked()
+        Keys.onReturnPressed: clicked()
         Behavior on color { ColorAnimation { duration: 110 } }
         Behavior on border.color { ColorAnimation { duration: 110 } }
     }
@@ -178,7 +268,7 @@ ApplicationWindow {
         implicitWidth: Math.min(pillRow.implicitWidth + 18, 220)
         implicitHeight: 26
         radius: 13
-        color: root.surfaceSoft
+        color: "#F7F8FA"
         border.width: 1
         border.color: root.line
         clip: true
@@ -228,7 +318,7 @@ ApplicationWindow {
         }
         background: Rectangle {
             radius: 7
-            color: select.hovered ? "#202429" : root.raised
+            color: select.hovered ? root.surfaceSoft : root.surface
             border.width: 1
             border.color: select.activeFocus ? root.accent : root.line
             Behavior on border.color { ColorAnimation { duration: 120 } }
@@ -240,7 +330,7 @@ ApplicationWindow {
             padding: 6
             background: Rectangle {
                 radius: 9
-                color: "#1C2024"
+                color: root.surface
                 border.color: root.line
                 border.width: 1
             }
@@ -263,7 +353,7 @@ ApplicationWindow {
             }
             background: Rectangle {
                 radius: 7
-                color: highlighted ? "#2A323A" : "transparent"
+                color: highlighted ? root.accentSoft : "transparent"
             }
             highlighted: select.highlightedIndex === index
         }
@@ -289,6 +379,13 @@ ApplicationWindow {
     Shortcut {
         sequence: "Ctrl+."
         onActivated: root.inspectorOpen = !root.inspectorOpen
+    }
+    Shortcut {
+        sequence: "Ctrl+K"
+        onActivated: {
+            root.commandOpen = true
+            commandCenter.open()
+        }
     }
 
     Connections {
@@ -322,9 +419,9 @@ ApplicationWindow {
         Rectangle {
             id: sidebar
             objectName: "sidebar"
-            Layout.preferredWidth: root.width < 1160 ? 216 : 248
+            Layout.preferredWidth: root.width < 1180 ? 220 : 256
             Layout.fillHeight: true
-            color: root.surface
+            color: root.nav
             border.width: 0
 
             ColumnLayout {
@@ -343,11 +440,11 @@ ApplicationWindow {
                         Layout.preferredWidth: 28
                         Layout.preferredHeight: 28
                         radius: 7
-                        color: root.accent
+                        color: "#8CB4FF"
                         Text {
                             anchors.centerIn: parent
                             text: "YF"
-                            color: root.canvas
+                            color: root.nav
                             font.pixelSize: 11
                             font.weight: Font.Black
                         }
@@ -358,13 +455,13 @@ ApplicationWindow {
                         spacing: 1
                         Text {
                             text: "YF-Harness"
-                            color: root.textPrimary
+                            color: root.navText
                             font.pixelSize: 13
                             font.weight: Font.DemiBold
                         }
                         Text {
                             text: "LOCAL / PRIVATE"
-                            color: root.textMuted
+                            color: root.navMuted
                             font.pixelSize: 7
                             font.letterSpacing: 1.4
                         }
@@ -372,6 +469,7 @@ ApplicationWindow {
                     ToolButton {
                         glyph: "+"
                         tooltip: "新建任务  ⌘N"
+                        onDark: true
                         onClicked: controller.newSession()
                     }
                 }
@@ -382,22 +480,22 @@ ApplicationWindow {
                     Layout.topMargin: 12
                     Layout.preferredHeight: 34
                     placeholderText: "搜索任务…"
-                    placeholderTextColor: root.textMuted
-                    color: root.textPrimary
+                    placeholderTextColor: root.navMuted
+                    color: root.navText
                     font.pixelSize: 12
                     leftPadding: 31
                     background: Rectangle {
                         radius: 7
-                        color: "#0C0F11"
+                        color: root.navSoft
                         border.width: 1
-                        border.color: sessionSearch.activeFocus ? root.accent : root.line
+                        border.color: sessionSearch.activeFocus ? "#8CB4FF" : "#294563"
                     }
                     Text {
                         anchors.left: parent.left
                         anchors.leftMargin: 10
                         anchors.verticalCenter: parent.verticalCenter
                         text: "⌕"
-                        color: root.textMuted
+                        color: root.navMuted
                         font.pixelSize: 17
                     }
                     onTextChanged: sessionSearchTimer.restart()
@@ -414,7 +512,7 @@ ApplicationWindow {
                     Layout.bottomMargin: 6
                     Text {
                         text: "任务记录"
-                        color: root.textSecondary
+                        color: root.navMuted
                         font.pixelSize: 10
                         font.weight: Font.DemiBold
                         font.letterSpacing: 1.1
@@ -422,7 +520,7 @@ ApplicationWindow {
                     Item { Layout.fillWidth: true }
                     Text {
                         text: sessionList.count
-                        color: root.textMuted
+                        color: root.navMuted
                         font.pixelSize: 10
                     }
                 }
@@ -446,14 +544,14 @@ ApplicationWindow {
                         height: 56
                         radius: 7
                         color: controller && controller.currentSessionId === sessionId
-                               ? "#1B2024"
-                               : (sessionMouse.containsMouse ? "#15191D" : "transparent")
+                               ? "#FFFFFF"
+                               : (sessionMouse.containsMouse ? root.navSoft : "transparent")
                         Rectangle {
                             visible: controller ? controller.currentSessionId === sessionRow.sessionId : false
                             width: 3
                             height: 22
                             radius: 0
-                            color: root.accent
+                            color: "#6F9FFF"
                             anchors.left: parent.left
                             anchors.verticalCenter: parent.verticalCenter
                         }
@@ -467,7 +565,8 @@ ApplicationWindow {
                             Text {
                                 width: parent.width
                                 text: sessionRow.title
-                                color: root.textPrimary
+                                color: controller && controller.currentSessionId === sessionRow.sessionId
+                                       ? root.nav : root.navText
                                 font.pixelSize: 11
                                 font.weight: Font.Medium
                                 elide: Text.ElideRight
@@ -477,14 +576,16 @@ ApplicationWindow {
                                 Text {
                                     width: parent.width - sessionTime.width - 8
                                     text: sessionRow.detail
-                                    color: root.textMuted
+                                    color: controller && controller.currentSessionId === sessionRow.sessionId
+                                           ? root.textSecondary : root.navMuted
                                     font.pixelSize: 8
                                     elide: Text.ElideRight
                                 }
                                 Text {
                                     id: sessionTime
                                     text: sessionRow.updated
-                                    color: root.textMuted
+                                    color: controller && controller.currentSessionId === sessionRow.sessionId
+                                           ? root.textMuted : root.navMuted
                                     font.pixelSize: 8
                                 }
                             }
@@ -500,7 +601,13 @@ ApplicationWindow {
                     }
                 }
 
-                Hairline { Layout.fillWidth: true; Layout.topMargin: 10; Layout.bottomMargin: 10 }
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.topMargin: 10
+                    Layout.bottomMargin: 10
+                    Layout.preferredHeight: 1
+                    color: "#294563"
+                }
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: 9
@@ -508,7 +615,7 @@ ApplicationWindow {
                         Layout.preferredWidth: 26
                         Layout.preferredHeight: 26
                         radius: 7
-                        color: "#243029"
+                        color: "#17463E"
                         Text {
                             anchors.centerIn: parent
                             text: "●"
@@ -518,11 +625,11 @@ ApplicationWindow {
                     }
                     Column {
                         Layout.fillWidth: true
-                        Text { text: "当前项目"; color: root.textPrimary; font.pixelSize: 10; font.weight: Font.Medium }
+                        Text { text: "当前项目"; color: root.navText; font.pixelSize: 10; font.weight: Font.Medium }
                         Text {
                             width: sidebar.width - 68
                             text: controller ? controller.workspacePath : ""
-                            color: root.textMuted
+                            color: root.navMuted
                             font.pixelSize: 9
                             elide: Text.ElideMiddle
                         }
@@ -533,6 +640,7 @@ ApplicationWindow {
                     Layout.topMargin: 8
                     label: "切换项目"
                     glyph: "↗"
+                    onDark: true
                     enabled: controller ? !controller.busy : false
                     onClicked: projectFolderDialog.open()
                 }
@@ -554,14 +662,15 @@ ApplicationWindow {
 
                 RowLayout {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 64
-                    Layout.leftMargin: 24
-                    Layout.rightMargin: 18
+                    Layout.preferredHeight: 72
+                    Layout.leftMargin: 30
+                    Layout.rightMargin: 20
                     spacing: 12
                     Column {
                         Layout.fillWidth: true
                         spacing: 4
                         Row {
+                            width: parent.width
                             spacing: 6
                             Text {
                                 text: "YF /"
@@ -571,7 +680,7 @@ ApplicationWindow {
                                 font.letterSpacing: 1.0
                             }
                             Text {
-                                width: Math.min(420, workspace.width - 420)
+                                width: Math.max(100, Math.min(460, workspace.width - 430))
                                 text: controller ? controller.workspacePath : ""
                                 color: root.textMuted
                                 font.pixelSize: 8
@@ -579,9 +688,11 @@ ApplicationWindow {
                             }
                         }
                         Text {
+                            objectName: "sessionTitle"
+                            width: parent.width
                             text: controller ? controller.currentSessionTitle : ""
                             color: root.textPrimary
-                            font.pixelSize: 16
+                            font.pixelSize: 19
                             font.weight: Font.DemiBold
                             elide: Text.ElideRight
                         }
@@ -596,10 +707,17 @@ ApplicationWindow {
                         visible: controller ? controller.busy : false
                         onClicked: controller.cancelRun()
                     }
+                    QuietButton {
+                        label: "命令"
+                        glyph: "⌘K"
+                        visible: workspace.width >= 690
+                        onClicked: commandCenter.open()
+                    }
                     ToolButton {
-                        glyph: root.inspectorOpen ? "×" : "≡"
-                        tooltip: root.inspectorOpen ? "关闭工作台" : "打开工作台"
+                        glyph: root.inspectorOpen ? "×" : "◫"
+                        tooltip: root.inspectorOpen ? "关闭检查器" : "打开检查器"
                         selected: root.inspectorOpen
+                        visible: !root.inspectorOpen
                         onClicked: root.inspectorOpen = !root.inspectorOpen
                     }
                 }
@@ -614,9 +732,9 @@ ApplicationWindow {
                     ListView {
                         id: conversation
                         anchors.fill: parent
-                        anchors.leftMargin: Math.max(42, (parent.width - 790) / 2)
-                        anchors.rightMargin: Math.max(42, (parent.width - 790) / 2)
-                        anchors.topMargin: 30
+                        anchors.leftMargin: Math.max(28, (parent.width - 860) / 2)
+                        anchors.rightMargin: Math.max(28, (parent.width - 860) / 2)
+                        anchors.topMargin: 34
                         anchors.bottomMargin: 22
                         model: controller ? controller.messageModel : null
                         spacing: 28
@@ -649,11 +767,11 @@ ApplicationWindow {
                                         width: 20
                                         height: 20
                                         radius: 5
-                                        color: messageDelegate.pending ? root.accentSoft : root.raised
+                                        color: messageDelegate.pending ? root.accentSoft : root.accent
                                         Text {
                                             anchors.centerIn: parent
                                             text: messageDelegate.pending ? "·" : "Y"
-                                            color: root.accent
+                                            color: messageDelegate.pending ? root.accent : "#FFFFFF"
                                             font.pixelSize: 9
                                             font.weight: Font.Black
                                         }
@@ -680,20 +798,20 @@ ApplicationWindow {
                                     width: messageDelegate.isUser
                                            ? Math.min(messageText.implicitWidth + 32, parent.width * 0.78)
                                            : parent.width
-                                    height: messageText.implicitHeight + (messageDelegate.isUser ? 22 : 10)
-                                    radius: messageDelegate.isUser ? 10 : 0
-                                    color: messageDelegate.isUser ? root.raised : "transparent"
-                                    border.width: messageDelegate.isUser ? 1 : 0
-                                    border.color: root.lineStrong
+                                    height: messageText.implicitHeight + (messageDelegate.isUser ? 22 : 28)
+                                    radius: 14
+                                    color: messageDelegate.isUser ? root.accent : root.surface
+                                    border.width: 1
+                                    border.color: messageDelegate.isUser ? root.accent : root.line
                                     Text {
                                         id: messageText
                                         anchors.left: parent.left
-                                        anchors.leftMargin: messageDelegate.isUser ? 15 : 28
+                                        anchors.leftMargin: messageDelegate.isUser ? 15 : 20
                                         anchors.right: parent.right
-                                        anchors.rightMargin: messageDelegate.isUser ? 15 : 8
+                                        anchors.rightMargin: messageDelegate.isUser ? 15 : 20
                                         anchors.verticalCenter: parent.verticalCenter
                                         text: messageDelegate.content || (messageDelegate.pending ? "正在思考…" : "")
-                                        color: root.textPrimary
+                                        color: messageDelegate.isUser ? "#FFFFFF" : root.textPrimary
                                         font.pixelSize: 14
                                         lineHeight: 1.48
                                         wrapMode: Text.Wrap
@@ -701,7 +819,7 @@ ApplicationWindow {
                                         onLinkActivated: link => Qt.openUrlExternally(link)
                                     }
                                     Rectangle {
-                                        visible: !messageDelegate.isUser
+                                        visible: false
                                         anchors.left: parent.left
                                         anchors.top: parent.top
                                         anchors.bottom: parent.bottom
@@ -715,8 +833,8 @@ ApplicationWindow {
                                     width: parent.width
                                     height: 36
                                     radius: 7
-                                    color: root.surfaceSoft
-                                    border.color: root.line
+                                    color: root.successSoft
+                                    border.color: "#B9DFD1"
                                     border.width: 1
                                     Row {
                                         anchors.fill: parent
@@ -734,6 +852,8 @@ ApplicationWindow {
                                             color: root.textSecondary
                                             font.pixelSize: 10
                                             anchors.verticalCenter: parent.verticalCenter
+                                            width: parent.width - 38
+                                            elide: Text.ElideRight
                                         }
                                     }
                                 }
@@ -751,7 +871,7 @@ ApplicationWindow {
                         transform: Translate { id: emptyTranslate; y: 18 }
                         Text {
                             width: parent.width
-                            text: "LOCAL AGENT / 01"
+                            text: "LOCAL WORKBENCH / 01"
                             color: root.accent
                             font.pixelSize: 9
                             font.weight: Font.DemiBold
@@ -760,7 +880,7 @@ ApplicationWindow {
                         Text {
                             width: parent.width
                             topPadding: 14
-                            text: "把想法变成\n可审阅的改动。"
+                            text: "从任务出发，\n把每一步做扎实。"
                             color: root.textPrimary
                             font.pixelSize: 34
                             font.weight: Font.DemiBold
@@ -771,7 +891,7 @@ ApplicationWindow {
                             width: Math.min(540, parent.width)
                             topPadding: 16
                             bottomPadding: 28
-                            text: "描述目标。YF-Harness 会先理解项目，再在本地安全边界内规划、执行并留下完整证据。"
+                            text: "描述目标，或按 ⌘K 打开命令中心。YF-Harness 会在本地安全边界内规划、执行并留下可审阅证据。"
                             color: root.textSecondary
                             font.pixelSize: 12
                             lineHeight: 1.45
@@ -845,7 +965,7 @@ ApplicationWindow {
                     Layout.rightMargin: Math.max(32, (workspace.width - 820) / 2)
                     Layout.preferredHeight: 40
                     radius: 8
-                    color: root.surfaceSoft
+                    color: root.accentSoft
                     border.color: root.line
                     RowLayout {
                         anchors.fill: parent
@@ -881,9 +1001,9 @@ ApplicationWindow {
                     Layout.rightMargin: Math.max(32, (workspace.width - 820) / 2)
                     Layout.preferredHeight: visible ? Math.min(238, 48 + skillList.count * 54) : 0
                     radius: 10
-                    color: root.raised
+                    color: root.surface
                     border.width: 1
-                    border.color: "#3B3329"
+                    border.color: root.lineStrong
                     clip: true
 
                     ColumnLayout {
@@ -891,6 +1011,7 @@ ApplicationWindow {
                         anchors.margins: 8
                         spacing: 4
                         RowLayout {
+                            objectName: "taskStatusBar"
                             Layout.fillWidth: true
                             Layout.leftMargin: 8
                             Layout.rightMargin: 8
@@ -930,7 +1051,7 @@ ApplicationWindow {
                                 height: 51
                                 radius: 8
                                 color: skillList.currentIndex === index || skillMouse.containsMouse
-                                       ? "#242B31" : "transparent"
+                                       ? root.accentSoft : "transparent"
                                 RowLayout {
                                     anchors.fill: parent
                                     anchors.leftMargin: 10
@@ -940,7 +1061,7 @@ ApplicationWindow {
                                         Layout.preferredWidth: 58
                                         Layout.preferredHeight: 23
                                         radius: 6
-                                        color: "#30291F"
+                                        color: root.accentSoft
                                         Text {
                                             anchors.centerIn: parent
                                             text: source.toUpperCase()
@@ -986,21 +1107,23 @@ ApplicationWindow {
                 }
 
                 Rectangle {
+                    id: composer
+                    objectName: "composer"
                     Layout.fillWidth: true
-                    Layout.leftMargin: Math.max(32, (workspace.width - 820) / 2)
-                    Layout.rightMargin: Math.max(32, (workspace.width - 820) / 2)
-                    Layout.bottomMargin: 18
-                    Layout.preferredHeight: controller && controller.attachmentCount > 0 ? 160 : 128
-                    radius: 12
-                    color: "#111416"
+                    Layout.leftMargin: Math.max(24, (workspace.width - 900) / 2)
+                    Layout.rightMargin: Math.max(24, (workspace.width - 900) / 2)
+                    Layout.bottomMargin: 20
+                    Layout.preferredHeight: controller && controller.attachmentCount > 0 ? 196 : 166
+                    radius: 18
+                    color: root.surface
                     border.width: 1
-                    border.color: promptInput.activeFocus ? "#77542D" : root.lineStrong
+                    border.color: promptInput.activeFocus ? root.accent : root.lineStrong
 
                     Rectangle {
                         anchors.left: parent.left
                         anchors.top: parent.top
                         anchors.bottom: parent.bottom
-                        width: 2
+                        width: 3
                         radius: 1
                         color: promptInput.activeFocus ? root.accent : "transparent"
                         Behavior on color { ColorAnimation { duration: 140 } }
@@ -1008,17 +1131,17 @@ ApplicationWindow {
 
                     ColumnLayout {
                         anchors.fill: parent
-                        anchors.leftMargin: 14
-                        anchors.rightMargin: 10
-                        anchors.topMargin: 10
-                        anchors.bottomMargin: 9
-                        spacing: 6
+                        anchors.leftMargin: 16
+                        anchors.rightMargin: 12
+                        anchors.topMargin: 12
+                        anchors.bottomMargin: 11
+                        spacing: 8
                         TextArea {
                             id: promptInput
                             objectName: "promptInput"
                             Layout.fillWidth: true
                             Layout.fillHeight: true
-                            placeholderText: "给 YF-Harness 一个清晰的任务…"
+                            placeholderText: "描述要完成的任务，或按 ⌘K 打开命令中心…"
                             placeholderTextColor: root.textMuted
                             color: root.textPrimary
                             selectionColor: root.accent
@@ -1073,7 +1196,7 @@ ApplicationWindow {
                                 width: attachmentLabel.implicitWidth + 34
                                 height: 27
                                 radius: 8
-                                color: "#1B2228"
+                                color: root.surfaceSoft
                                 border.color: root.line
                                 Text {
                                     id: attachmentLabel
@@ -1099,6 +1222,51 @@ ApplicationWindow {
                                     cursorShape: Qt.PointingHandCursor
                                     onClicked: controller.removeAttachment(attachmentId)
                                 }
+                            }
+                        }
+                        RowLayout {
+                            objectName: "composerActions"
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 30
+                            spacing: 7
+                            Text {
+                                text: "任务状态"
+                                color: root.textMuted
+                                font.pixelSize: 9
+                                font.weight: Font.DemiBold
+                                font.letterSpacing: 0.7
+                            }
+                            ComposerChip {
+                                objectName: "composerGoal"
+                                glyph: controller && controller.hasActiveGoal ? "◎" : "○"
+                                label: controller && controller.currentGoal.length > 0
+                                       ? controller.currentGoal : "设置目标"
+                                maximumLabelWidth: Math.max(90, Math.min(260, workspace.width - 560))
+                                selected: controller ? controller.hasActiveGoal : false
+                                onClicked: goalPopup.open()
+                            }
+                            ComposerChip {
+                                objectName: "composerContext"
+                                glyph: "◔"
+                                label: controller && controller.contextBudget > 0
+                                       ? Math.round(controller.contextUsageRatio * 100) + "% · "
+                                         + controller.contextSourceCount + " 来源"
+                                       : "上下文待刷新"
+                                selected: controller ? controller.contextUsageRatio >= 0.8 : false
+                                onClicked: contextPopup.open()
+                            }
+                            Text {
+                                visible: controller ? controller.queueCount > 0 : false
+                                text: "队列 " + (controller ? controller.queueCount : 0)
+                                color: root.textSecondary
+                                font.pixelSize: 9
+                            }
+                            Item { Layout.fillWidth: true }
+                            Text {
+                                text: controller && controller.busy ? "运行中" : "本地安全执行"
+                                color: controller && controller.busy ? root.accent : root.success
+                                font.pixelSize: 9
+                                font.weight: Font.Medium
                             }
                         }
                         RowLayout {
@@ -1141,19 +1309,10 @@ ApplicationWindow {
                                     }
                                 }
                             }
-                            ComposerChip {
-                                objectName: "composerGoal"
-                                glyph: controller && controller.hasActiveGoal ? "◎" : "○"
-                                label: controller && controller.currentGoal.length > 0
-                                       ? controller.currentGoal : "/goal"
-                                maximumLabelWidth: 112
-                                selected: controller ? controller.hasActiveGoal : false
-                                onClicked: goalPopup.open()
-                            }
                             ControlSelect {
                                 id: composerModelSelect
                                 objectName: "composerModel"
-                                Layout.preferredWidth: workspace.width >= 850 ? 146 : 112
+                                Layout.preferredWidth: workspace.width >= 780 ? 160 : 124
                                 implicitHeight: 32
                                 model: modelSelect.model
                                 currentIndex: modelSelect.currentIndex
@@ -1162,23 +1321,20 @@ ApplicationWindow {
                                 ToolTip.text: controller ? controller.modelDescription(currentText) : ""
                             }
                             ComposerChip {
-                                objectName: "composerContext"
-                                visible: workspace.width >= 720
-                                glyph: "◔"
-                                label: controller && controller.contextBudget > 0
-                                       ? Math.round(controller.contextUsageRatio * 100) + "% 上下文"
-                                       : "上下文"
-                                selected: controller ? controller.contextUsageRatio >= 0.8 : false
-                                onClicked: contextPopup.open()
+                                objectName: "composerCommand"
+                                glyph: "⌘"
+                                label: "命令"
+                                onClicked: commandCenter.open()
                             }
                             Item { Layout.fillWidth: true }
                             Text {
-                                visible: workspace.width >= 1040
-                                text: "$ 技能  ·  ⌘↵"
+                                visible: workspace.width >= 900
+                                text: "⌘↵ 发送"
                                 color: root.textMuted
                                 font.pixelSize: 8
                             }
                             QuietButton {
+                                objectName: "sendButton"
                                 label: controller && controller.busy ? "排队" : "发送"
                                 glyph: controller && controller.busy ? "+" : "↗"
                                 prominent: true
@@ -1204,7 +1360,7 @@ ApplicationWindow {
                             }
                             background: Rectangle {
                                 radius: 12
-                                color: "#181C20"
+                                color: root.surface
                                 border.color: root.lineStrong
                                 border.width: 1
                             }
@@ -1228,7 +1384,7 @@ ApplicationWindow {
                                     Layout.fillWidth: true
                                     Layout.preferredHeight: 92
                                     radius: 8
-                                    color: root.canvas
+                                    color: "#F8F9FB"
                                     border.color: goalInput.activeFocus ? root.accent : root.line
                                     TextArea {
                                         id: goalInput
@@ -1297,7 +1453,7 @@ ApplicationWindow {
                             closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
                             background: Rectangle {
                                 radius: 12
-                                color: "#181C20"
+                                color: root.surface
                                 border.color: root.lineStrong
                                 border.width: 1
                             }
@@ -1379,17 +1535,33 @@ ApplicationWindow {
 
         Hairline {
             Layout.fillHeight: true
-            visible: root.inspectorOpen
+            visible: false
         }
 
-        Rectangle {
-            id: inspector
+        Item {
+            Layout.preferredWidth: 0
+            Layout.preferredHeight: 0
+            Popup {
+                id: inspector
             objectName: "inspector"
-            Layout.preferredWidth: root.inspectorOpen ? (root.width >= 1320 ? 306 : 276) : 0
-            Layout.fillHeight: true
-            color: root.surface
-            clip: true
-            opacity: root.inspectorOpen ? 1 : 0
+            parent: Overlay.overlay
+            visible: root.inspectorOpen
+            modal: false
+            dim: false
+            x: parent.width - width
+            y: 0
+            width: root.width >= 1320 ? 360 : 330
+            height: parent.height
+            padding: 0
+            z: 30
+            closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+            onClosed: root.inspectorOpen = false
+            background: Rectangle {
+                radius: 18
+                color: root.surface
+                border.color: root.lineStrong
+                border.width: 1
+            }
 
             ColumnLayout {
                 anchors.fill: parent
@@ -1515,8 +1687,8 @@ ApplicationWindow {
                                 Layout.topMargin: 20
                                 implicitHeight: planColumn.implicitHeight + 24
                                 radius: 11
-                                color: "#191A18"
-                                border.color: "#403523"
+                                        color: root.accentSoft
+                                        border.color: "#B9CBF4"
                                 ColumnLayout {
                                     id: planColumn
                                     anchors.left: parent.left
@@ -1674,7 +1846,7 @@ ApplicationWindow {
                                         Layout.fillWidth: true
                                         Layout.preferredHeight: 156
                                         radius: 8
-                                        color: "#0D1114"
+                                        color: "#F7F8FA"
                                         ScrollView {
                                             anchors.fill: parent
                                             anchors.margins: 9
@@ -1743,7 +1915,7 @@ ApplicationWindow {
                 Text {
                     Layout.fillWidth: true
                     Layout.topMargin: 10
-                    text: "YF-Harness 0.8 · Local first"
+                    text: "YF-Harness 0.9 · Local first"
                     color: root.textMuted
                     font.pixelSize: 9
                     horizontalAlignment: Text.AlignHCenter
@@ -1759,8 +1931,215 @@ ApplicationWindow {
                 root.selectValue(permissionSelect,
                                  controller.workflowPermissions(workflowSelect.currentText))
             }
-            Behavior on Layout.preferredWidth { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
-            Behavior on opacity { NumberAnimation { duration: 140 } }
+            enter: Transition {
+                NumberAnimation { property: "opacity"; from: 0; to: 1; duration: 150 }
+                NumberAnimation { property: "x"; from: root.width; to: root.width - inspector.width; duration: 210; easing.type: Easing.OutCubic }
+            }
+                exit: Transition {
+                    NumberAnimation { property: "opacity"; from: 1; to: 0; duration: 120 }
+                }
+            }
+        }
+    }
+
+    Popup {
+        id: commandCenter
+        objectName: "commandCenter"
+        parent: Overlay.overlay
+        x: Math.max(20, (root.width - width) / 2)
+        y: Math.max(28, Math.min(92, root.height * 0.11))
+        width: Math.min(620, root.width - 40)
+        height: Math.min(580, root.height - 56)
+        padding: 0
+        modal: true
+        dim: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        onOpened: {
+            root.commandOpen = true
+            commandQuery.clear()
+            commandList.currentIndex = 0
+            commandQuery.forceActiveFocus()
+        }
+        onClosed: root.commandOpen = false
+        Overlay.modal: Rectangle { color: "#5A10223D" }
+        background: Rectangle {
+            radius: 20
+            color: root.surface
+            border.width: 1
+            border.color: root.lineStrong
+        }
+        contentItem: ColumnLayout {
+            spacing: 0
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 72
+                Layout.leftMargin: 20
+                Layout.rightMargin: 16
+                spacing: 12
+                Rectangle {
+                    Layout.preferredWidth: 34
+                    Layout.preferredHeight: 34
+                    radius: 10
+                    color: root.accentSoft
+                    Text {
+                        anchors.centerIn: parent
+                        text: "⌘"
+                        color: root.accent
+                        font.pixelSize: 15
+                        font.weight: Font.DemiBold
+                    }
+                }
+                TextField {
+                    id: commandQuery
+                    objectName: "commandQuery"
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 46
+                    placeholderText: "搜索动作、视图或工作流…"
+                    placeholderTextColor: root.textMuted
+                    color: root.textPrimary
+                    font.pixelSize: 15
+                    leftPadding: 0
+                    rightPadding: 0
+                    background: Item { }
+                    onTextChanged: Qt.callLater(root.selectFirstMatchingCommand)
+                    Keys.onPressed: event => {
+                        if (event.key === Qt.Key_Down) {
+                            root.moveCommandSelection(1)
+                            event.accepted = true
+                        } else if (event.key === Qt.Key_Up) {
+                            root.moveCommandSelection(-1)
+                            event.accepted = true
+                        } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                            var item = commandList.itemAtIndex(commandList.currentIndex)
+                            if (item)
+                                root.runCommand(item.actionId)
+                            event.accepted = true
+                        }
+                    }
+                }
+                Rectangle {
+                    Layout.preferredWidth: 34
+                    Layout.preferredHeight: 24
+                    radius: 6
+                    color: root.surfaceSoft
+                    Text { anchors.centerIn: parent; text: "ESC"; color: root.textMuted; font.pixelSize: 8 }
+                }
+            }
+            Hairline { Layout.fillWidth: true }
+            Text {
+                Layout.fillWidth: true
+                Layout.leftMargin: 20
+                Layout.topMargin: 14
+                Layout.bottomMargin: 8
+                text: "工作台命令"
+                color: root.textMuted
+                font.pixelSize: 9
+                font.weight: Font.DemiBold
+                font.letterSpacing: 1.0
+            }
+            ListView {
+                id: commandList
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                Layout.leftMargin: 10
+                Layout.rightMargin: 10
+                Layout.bottomMargin: 10
+                clip: true
+                spacing: 3
+                currentIndex: 0
+                model: ListModel {
+                    ListElement { actionId: "new"; glyph: "+"; title: "新建任务"; detail: "清空画布并开始一个独立会话"; shortcut: "⌘N" }
+                    ListElement { actionId: "plan"; glyph: "◇"; title: "切换到 Plan"; detail: "只读分析并生成可审阅计划"; shortcut: "P" }
+                    ListElement { actionId: "goal"; glyph: "◎"; title: "设置持久目标"; detail: "为后续运行保留当前任务方向"; shortcut: "G" }
+                    ListElement { actionId: "changes"; glyph: "△"; title: "审查文件变更"; detail: "查看 Diff 并安全撤销文件或整次运行"; shortcut: "R" }
+                    ListElement { actionId: "context"; glyph: "◔"; title: "查看上下文"; detail: "检查 Token 预算、规则来源与压缩状态"; shortcut: "C" }
+                    ListElement { actionId: "skills"; glyph: "$"; title: "调用项目技能"; detail: "发现 Codex、Claude 与 Cursor 项目工作流"; shortcut: "S" }
+                    ListElement { actionId: "project"; glyph: "↗"; title: "切换项目"; detail: "选择另一个本地工作区"; shortcut: "O" }
+                }
+                delegate: Rectangle {
+                    id: commandRow
+                    required property int index
+                    required property string actionId
+                    required property string glyph
+                    required property string title
+                    required property string detail
+                    required property string shortcut
+                    property bool queryMatch: commandQuery.text.length === 0
+                                              || title.toLowerCase().indexOf(commandQuery.text.toLowerCase()) >= 0
+                                              || detail.toLowerCase().indexOf(commandQuery.text.toLowerCase()) >= 0
+                    width: ListView.view.width
+                    height: queryMatch ? 58 : 0
+                    visible: height > 0
+                    radius: 12
+                    color: commandList.currentIndex === index || commandMouse.containsMouse
+                           ? root.accentSoft : "transparent"
+                    clip: true
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: 12
+                        anchors.rightMargin: 12
+                        spacing: 12
+                        Rectangle {
+                            Layout.preferredWidth: 32
+                            Layout.preferredHeight: 32
+                            radius: 9
+                            color: commandList.currentIndex === commandRow.index
+                                   ? root.accent : root.surfaceSoft
+                            Text {
+                                anchors.centerIn: parent
+                                text: commandRow.glyph
+                                color: commandList.currentIndex === commandRow.index
+                                       ? "#FFFFFF" : root.textSecondary
+                                font.pixelSize: 13
+                                font.weight: Font.DemiBold
+                            }
+                        }
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 2
+                            Text {
+                                Layout.fillWidth: true
+                                text: commandRow.title
+                                color: root.textPrimary
+                                font.pixelSize: 12
+                                font.weight: Font.DemiBold
+                                elide: Text.ElideRight
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                text: commandRow.detail
+                                color: root.textMuted
+                                font.pixelSize: 9
+                                elide: Text.ElideRight
+                            }
+                        }
+                        Text {
+                            text: commandRow.shortcut
+                            color: root.textMuted
+                            font.pixelSize: 9
+                        }
+                    }
+                    MouseArea {
+                        id: commandMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onEntered: commandList.currentIndex = commandRow.index
+                        onClicked: root.runCommand(commandRow.actionId)
+                    }
+                    Behavior on color { ColorAnimation { duration: 100 } }
+                }
+            }
+            Text {
+                Layout.fillWidth: true
+                Layout.leftMargin: 20
+                Layout.rightMargin: 20
+                Layout.bottomMargin: 16
+                text: "↑↓ 选择  ·  ↵ 执行  ·  所有动作继续遵守当前权限与审批"
+                color: root.textMuted
+                font.pixelSize: 9
+                elide: Text.ElideRight
+            }
         }
     }
 
@@ -1786,8 +2165,8 @@ ApplicationWindow {
         padding: 0
         background: Rectangle {
             radius: 16
-            color: "#171D23"
-            border.color: "#3A424A"
+            color: root.surface
+            border.color: root.lineStrong
             border.width: 1
         }
         contentItem: ColumnLayout {
@@ -1811,7 +2190,7 @@ ApplicationWindow {
                 Layout.preferredHeight: 190
                 Layout.margins: 20
                 radius: 10
-                color: "#0E1216"
+                color: "#F7F8FA"
                 border.color: root.line
                 ScrollView {
                     anchors.fill: parent
@@ -1861,8 +2240,8 @@ ApplicationWindow {
         width: Math.min(toastText.implicitWidth + 42, root.width - 80)
         height: 44
         radius: 11
-        color: "#2B2020"
-        border.color: "#664242"
+        color: "#FFF0F0"
+        border.color: "#E1B4B4"
         opacity: 0
         visible: opacity > 0
         z: 20
@@ -1870,7 +2249,7 @@ ApplicationWindow {
             id: toastText
             anchors.centerIn: parent
             width: parent.width - 28
-            color: "#F0C8C3"
+            color: root.danger
             font.pixelSize: 11
             elide: Text.ElideRight
             horizontalAlignment: Text.AlignHCenter

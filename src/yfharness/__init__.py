@@ -4,4 +4,4 @@ from yfharness.core.models import Message, MessageRole, ModelConfig
 
 __all__ = ["Message", "MessageRole", "ModelConfig", "__version__"]
 
-__version__ = "0.8.0"
+__version__ = "0.9.0"
