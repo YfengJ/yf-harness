@@ -20,6 +20,7 @@
 - 最终 1280×800 检查器截图确认抽屉已经与窗口右边界、上下边界贴合，底层“命令”按钮不再从边距露出；抽屉作为覆盖层保留主画布宽度，关闭入口和刷新动作均完整可见。
 - 0.9.0 全量门禁结果为 162 passed、82.87% 覆盖率、20/20 离线 Eval；Ruff、格式、核心/桌面 mypy、锁文件检查及 0.9.0 sdist/wheel 同时通过，说明视觉重构没有破坏核心 Agent、存储、安全与 CLI/TUI 契约。
 - 0.9.0 最终 App 为 235 MiB，`CFBundleShortVersionString` 与 `CFBundleVersion` 均为 0.9.0，深度 codesign 通过；Bundle 本体的 1480/1040、命令中心和上下文抽屉截图与源码预览一致，最窄压力报告的 13 个对象全部 `within_window=true`。
+- 功能提交 `6cc2cbc` 已进入私密 `YfengJ/yf-harness` 的 `main`；GitHub Actions run `33335645069` 最终八个 Job 全绿，包括 minimal-install、Linux desktop-smoke 和 Ubuntu/macOS/Windows 的 Python 3.12/3.13 矩阵。
 
 ## 阶段 16：Composer 工作流控制与持久目标（2026-08-30）
 - OpenAI 官方将模型选择与 `reasoning.effort` 分开建模；GPT-5.6 当前提供 Sol/Terra/Luna 三个定位和独立推理强度，因此 UI 不应把“模型”与“运行模式/推理深度”混成同一个选择器。[官方模型目录](https://developers.openai.com/api/docs/models)

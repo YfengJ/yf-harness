@@ -2,8 +2,8 @@
 
 ## 当前状态
 
-- 当前阶段：阶段 17（0.9 蓝图工作室桌面重构，全量验证）
-- 整体状态：0.9 功能、响应式几何回归与版本文档完成；正在执行完整质量门和 App 构建
+- 当前阶段：阶段 17（0.9 蓝图工作室桌面重构，完成）
+- 整体状态：0.9 UI、响应式回归、macOS App、私密 GitHub 发布与八任务远端 CI 全部完成
 - 初始仓库：空目录、非 Git 仓库
 - 当前风险：P1（安全边界、子进程、持久化、CLI/TUI 公共契约）
 
@@ -31,6 +31,7 @@
 - 0.9.0 完整本地质量门通过：162 passed、82.87% 覆盖率，Ruff/format、核心 68 文件与桌面 3 文件 mypy、20/20 Eval、锁文件及 sdist/wheel 构建全部成功。
 - 0.9.0 macOS `YF-Harness.app` 已重建为 235 MiB；Plist 短版本/构建版本均为 0.9.0，深度 codesign 校验通过。真实 Bundle 的 1480、1040、命令中心和上下文抽屉截图均已人工复核，1040 报告 13/13 控件在窗口内。
 - 发布前只读审查未发现可操作缺陷；最终 Change Radar 为 P1/40、无 blocking gaps，私密仓库与 main 默认分支已复核。剩余证据仅为提交、推送和远端 CI。
+- 0.9.0 功能提交 `6cc2cbc` 已推送私密 `YfengJ/yf-harness`；GitHub Actions run `33335645069` 的 minimal-install、desktop-smoke 及 Ubuntu/macOS/Windows × Python 3.12/3.13 共八个 Job 全绿。
 
 - 已按用户要求先规划后执行：官方语义、现有 Controller/QML、AgentMode、ContextSnapshot 与 SQLite 契约已经完成首轮审计。
 - 阶段 16 采用“复用现有 Plan/模型/上下文能力 + 新增会话级 Goal 持久化”，不复制 AgentRunner，也不扩大权限边界。
