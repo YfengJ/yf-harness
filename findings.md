@@ -18,6 +18,7 @@
 - 0.8.0 本地最终证据为 158 项测试、82.87% 覆盖率、20/20 Eval、sdist/wheel 与 235 MiB macOS App；真实 Bundle 生成的 2960×1648 截图确认 Composer 控件完整且未造成布局回退。
 - 最终 Change Radar 为 P1/30 且无 blocking gaps；P1 来自预期的依赖元数据和运行路径变化，不代表发现新的未解决安全缺陷。
 - 发布元数据复核发现部署器只生成 `CFBundleShortVersionString`；构建脚本现在从包版本同时写入并验证 `CFBundleVersion`，避免 App 更新/签名工具看到不完整版本元数据。
+- GitHub Actions run `33332257769` 最终确认 minimal-install、desktop-smoke 及 Ubuntu/macOS/Windows × Python 3.12/3.13 八个 Job 全绿；目标仓库再次确认为 `PRIVATE`。
 
 ## 需求基线
 - 项目名 YF-Harness，包名 `yfharness`，CLI 名 `yfh`，默认简体中文，代码/API 使用英文，MIT。

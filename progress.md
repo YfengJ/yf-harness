@@ -2,8 +2,8 @@
 
 ## 当前状态
 
-- 当前阶段：阶段 16（Composer 工作流控制与持久目标，本地发布门完成）
-- 整体状态：0.8.0 功能、全量质量门与 macOS App 已完成；待推送私密 GitHub 并确认远端 CI
+- 当前阶段：阶段 16（Composer 工作流控制与持久目标，完成）
+- 整体状态：0.8.0 已发布到私密 GitHub，八个远端 CI Job 全绿
 - 初始仓库：空目录、非 Git 仓库
 - 当前风险：P1（安全边界、子进程、持久化、CLI/TUI 公共契约）
 
@@ -183,6 +183,7 @@
 | 2026-08-31 | 0.8.0 Eval/构建 | 20/20 Eval；0.8.0 sdist/wheel 成功 |
 | 2026-08-31 | 0.8.0 macOS App | 235 MiB Bundle；Plist 0.8.0、Bundle ID、ad-hoc codesign、Bundle 截图与视觉检查通过 |
 | 2026-08-31 | 0.8.0 Change Radar | P1/30，无 blocking gaps；迁移、锁文件、桌面运行和界面契约均有直接验证证据 |
+| 2026-08-31 | 最终 0.8.0 CI `33332257769` | minimal-install、desktop-smoke 与 Linux/macOS/Windows × Python 3.12/3.13 八个 Job 全绿 |
 
 ## 错误与修复
 
