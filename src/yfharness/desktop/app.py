@@ -43,6 +43,7 @@ def main() -> None:
         raise SystemExit("无法加载桌面界面资源")
     if args.screenshot:
         engine.rootObjects()[0].setProperty("inspectorTab", args.preview_tab)
+        engine.rootObjects()[0].setProperty("inspectorOpen", args.preview_tab > 0)
     application.aboutToQuit.connect(controller.shutdown)
 
     if args.screenshot:

@@ -5,25 +5,29 @@ import QtQuick.Layouts
 
 ApplicationWindow {
     id: root
-    width: 1440
-    height: 900
-    minimumWidth: 1040
-    minimumHeight: 680
+    width: 1480
+    height: 920
+    minimumWidth: 980
+    minimumHeight: 700
     visible: true
     title: (controller ? controller.currentSessionTitle : "YF-Harness") + " — YF-Harness"
-    color: "#0B0E11"
+    color: "#0A0C0E"
 
-    readonly property color canvas: "#0B0E11"
-    readonly property color surface: "#11161B"
-    readonly property color raised: "#171D23"
-    readonly property color line: "#252C33"
-    readonly property color textPrimary: "#F3EEE5"
-    readonly property color textSecondary: "#99A3AC"
-    readonly property color textMuted: "#67727D"
-    readonly property color accent: "#D8A25E"
-    readonly property color success: "#77B88D"
+    readonly property color canvas: "#0A0C0E"
+    readonly property color surface: "#101316"
+    readonly property color surfaceSoft: "#14181C"
+    readonly property color raised: "#191D21"
+    readonly property color line: "#272C31"
+    readonly property color lineStrong: "#373D43"
+    readonly property color textPrimary: "#F2EDE3"
+    readonly property color textSecondary: "#A9A49B"
+    readonly property color textMuted: "#716F6A"
+    readonly property color accent: "#D7A35C"
+    readonly property color accentSoft: "#3B2D1C"
+    readonly property color success: "#75B889"
     property string approvalId: ""
     property int inspectorTab: 0
+    property bool inspectorOpen: false
 
     function selectValue(combo, value) {
         var index = combo.find(value)
@@ -53,9 +57,10 @@ ApplicationWindow {
         property bool prominent: false
         signal clicked()
         implicitWidth: buttonContent.implicitWidth + 28
-        implicitHeight: 38
-        radius: 9
-        color: prominent ? root.accent : (buttonMouse.containsMouse ? "#20272E" : "transparent")
+        implicitHeight: 36
+        radius: 7
+        color: prominent ? (buttonMouse.containsMouse ? "#E6B570" : root.accent)
+                         : (buttonMouse.containsMouse ? root.raised : "transparent")
         border.width: prominent ? 0 : 1
         border.color: root.line
         opacity: enabled ? 1 : 0.42
@@ -67,13 +72,13 @@ ApplicationWindow {
                 visible: quietButton.glyph.length > 0
                 text: quietButton.glyph
                 color: quietButton.prominent ? root.canvas : root.textSecondary
-                font.pixelSize: 14
+                font.pixelSize: 13
                 font.weight: Font.DemiBold
             }
             Text {
                 text: quietButton.label
                 color: quietButton.prominent ? root.canvas : root.textPrimary
-                font.pixelSize: 13
+                font.pixelSize: 12
                 font.weight: Font.DemiBold
             }
         }
@@ -90,11 +95,76 @@ ApplicationWindow {
         Behavior on scale { NumberAnimation { duration: 90 } }
     }
 
+    component ToolButton: Rectangle {
+        id: toolButton
+        property string glyph: ""
+        property string tooltip: ""
+        property bool selected: false
+        signal clicked()
+        implicitWidth: 34
+        implicitHeight: 34
+        radius: 7
+        color: selected ? root.accentSoft : (toolMouse.containsMouse ? root.raised : "transparent")
+        border.width: selected ? 1 : 0
+        border.color: selected ? "#6A4E2D" : "transparent"
+        Text {
+            anchors.centerIn: parent
+            text: toolButton.glyph
+            color: toolButton.selected ? root.accent : root.textSecondary
+            font.pixelSize: 14
+            font.weight: Font.DemiBold
+        }
+        MouseArea {
+            id: toolMouse
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: toolButton.clicked()
+        }
+        ToolTip.visible: toolMouse.containsMouse && tooltip.length > 0
+        ToolTip.text: tooltip
+        Behavior on color { ColorAnimation { duration: 100 } }
+    }
+
+    component MetaPill: Rectangle {
+        id: metaPill
+        property string label: ""
+        property color dotColor: root.textMuted
+        implicitWidth: Math.min(pillRow.implicitWidth + 18, 220)
+        implicitHeight: 26
+        radius: 13
+        color: root.surfaceSoft
+        border.width: 1
+        border.color: root.line
+        clip: true
+        Row {
+            id: pillRow
+            anchors.centerIn: parent
+            spacing: 7
+            Rectangle {
+                width: 6
+                height: 6
+                radius: 3
+                color: metaPill.dotColor
+                anchors.verticalCenter: parent.verticalCenter
+            }
+            Text {
+                text: metaPill.label
+                width: Math.min(implicitWidth, 188)
+                color: root.textSecondary
+                font.pixelSize: 9
+                font.weight: Font.Medium
+                elide: Text.ElideRight
+                anchors.verticalCenter: parent.verticalCenter
+            }
+        }
+    }
+
     component ControlSelect: ComboBox {
         id: select
-        implicitHeight: 38
-        font.pixelSize: 12
-        leftPadding: 12
+        implicitHeight: 36
+        font.pixelSize: 11
+        leftPadding: 11
         rightPadding: 34
         contentItem: Text {
             text: select.displayText
@@ -112,8 +182,8 @@ ApplicationWindow {
             anchors.verticalCenter: parent.verticalCenter
         }
         background: Rectangle {
-            radius: 8
-            color: select.hovered ? "#1B2229" : root.raised
+            radius: 7
+            color: select.hovered ? "#202429" : root.raised
             border.width: 1
             border.color: select.activeFocus ? root.accent : root.line
             Behavior on border.color { ColorAnimation { duration: 120 } }
@@ -124,8 +194,8 @@ ApplicationWindow {
             implicitHeight: Math.min(contentItem.implicitHeight + 12, 260)
             padding: 6
             background: Rectangle {
-                radius: 10
-                color: "#1B2229"
+                radius: 9
+                color: "#1C2024"
                 border.color: root.line
                 border.width: 1
             }
@@ -164,7 +234,16 @@ ApplicationWindow {
     }
     Shortcut {
         sequence: "Escape"
-        onActivated: controller.cancelRun()
+        onActivated: {
+            if (controller && controller.busy)
+                controller.cancelRun()
+            else if (root.inspectorOpen)
+                root.inspectorOpen = false
+        }
+    }
+    Shortcut {
+        sequence: "Ctrl+."
+        onActivated: root.inspectorOpen = !root.inspectorOpen
     }
 
     Connections {
@@ -190,30 +269,34 @@ ApplicationWindow {
 
         Rectangle {
             id: sidebar
-            Layout.preferredWidth: root.width < 1180 ? 238 : 276
+            objectName: "sidebar"
+            Layout.preferredWidth: root.width < 1160 ? 216 : 248
             Layout.fillHeight: true
             color: root.surface
             border.width: 0
 
             ColumnLayout {
                 anchors.fill: parent
-                anchors.margins: 18
+                anchors.leftMargin: 14
+                anchors.rightMargin: 14
+                anchors.topMargin: 14
+                anchors.bottomMargin: 12
                 spacing: 0
 
                 RowLayout {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 52
-                    spacing: 12
+                    Layout.preferredHeight: 40
+                    spacing: 10
                     Rectangle {
-                        width: 34
-                        height: 34
-                        radius: 10
+                        Layout.preferredWidth: 28
+                        Layout.preferredHeight: 28
+                        radius: 7
                         color: root.accent
                         Text {
                             anchors.centerIn: parent
                             text: "YF"
                             color: root.canvas
-                            font.pixelSize: 13
+                            font.pixelSize: 11
                             font.weight: Font.Black
                         }
                     }
@@ -224,46 +307,42 @@ ApplicationWindow {
                         Text {
                             text: "YF-Harness"
                             color: root.textPrimary
-                            font.pixelSize: 15
+                            font.pixelSize: 13
                             font.weight: Font.DemiBold
                         }
                         Text {
-                            text: "LOCAL AGENT WORKSPACE"
+                            text: "LOCAL / PRIVATE"
                             color: root.textMuted
-                            font.pixelSize: 8
-                            font.letterSpacing: 1.2
+                            font.pixelSize: 7
+                            font.letterSpacing: 1.4
                         }
                     }
-                }
-
-                QuietButton {
-                    Layout.fillWidth: true
-                    Layout.topMargin: 18
-                    label: "新建任务"
-                    glyph: "+"
-                    prominent: true
-                    onClicked: controller.newSession()
+                    ToolButton {
+                        glyph: "+"
+                        tooltip: "新建任务  ⌘N"
+                        onClicked: controller.newSession()
+                    }
                 }
 
                 TextField {
                     id: sessionSearch
                     Layout.fillWidth: true
-                    Layout.topMargin: 18
-                    Layout.preferredHeight: 38
-                    placeholderText: "搜索会话"
+                    Layout.topMargin: 12
+                    Layout.preferredHeight: 34
+                    placeholderText: "搜索任务…"
                     placeholderTextColor: root.textMuted
                     color: root.textPrimary
                     font.pixelSize: 12
-                    leftPadding: 34
+                    leftPadding: 31
                     background: Rectangle {
-                        radius: 9
-                        color: "#0E1216"
+                        radius: 7
+                        color: "#0C0F11"
                         border.width: 1
                         border.color: sessionSearch.activeFocus ? root.accent : root.line
                     }
                     Text {
                         anchors.left: parent.left
-                        anchors.leftMargin: 12
+                        anchors.leftMargin: 10
                         anchors.verticalCenter: parent.verticalCenter
                         text: "⌕"
                         color: root.textMuted
@@ -279,14 +358,14 @@ ApplicationWindow {
 
                 RowLayout {
                     Layout.fillWidth: true
-                    Layout.topMargin: 22
-                    Layout.bottomMargin: 8
+                    Layout.topMargin: 18
+                    Layout.bottomMargin: 6
                     Text {
-                        text: "最近会话"
+                        text: "任务记录"
                         color: root.textSecondary
                         font.pixelSize: 10
                         font.weight: Font.DemiBold
-                        font.letterSpacing: 0.8
+                        font.letterSpacing: 1.1
                     }
                     Item { Layout.fillWidth: true }
                     Text {
@@ -301,7 +380,7 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     clip: true
-                    spacing: 3
+                    spacing: 2
                     model: controller ? controller.sessionModel : null
                     boundsBehavior: Flickable.StopAtBounds
                     ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
@@ -312,32 +391,32 @@ ApplicationWindow {
                         required property string detail
                         required property string updated
                         width: sessionList.width
-                        height: 62
-                        radius: 9
+                        height: 56
+                        radius: 7
                         color: controller && controller.currentSessionId === sessionId
-                               ? "#20272D"
-                               : (sessionMouse.containsMouse ? "#181E24" : "transparent")
+                               ? "#1B2024"
+                               : (sessionMouse.containsMouse ? "#15191D" : "transparent")
                         Rectangle {
                             visible: controller ? controller.currentSessionId === sessionRow.sessionId : false
                             width: 3
-                            height: 28
-                            radius: 2
+                            height: 22
+                            radius: 0
                             color: root.accent
                             anchors.left: parent.left
                             anchors.verticalCenter: parent.verticalCenter
                         }
                         Column {
                             anchors.left: parent.left
-                            anchors.leftMargin: 13
+                            anchors.leftMargin: 12
                             anchors.right: parent.right
                             anchors.rightMargin: 10
                             anchors.verticalCenter: parent.verticalCenter
-                            spacing: 5
+                            spacing: 4
                             Text {
                                 width: parent.width
                                 text: sessionRow.title
                                 color: root.textPrimary
-                                font.pixelSize: 12
+                                font.pixelSize: 11
                                 font.weight: Font.Medium
                                 elide: Text.ElideRight
                             }
@@ -347,14 +426,14 @@ ApplicationWindow {
                                     width: parent.width - sessionTime.width - 8
                                     text: sessionRow.detail
                                     color: root.textMuted
-                                    font.pixelSize: 9
+                                    font.pixelSize: 8
                                     elide: Text.ElideRight
                                 }
                                 Text {
                                     id: sessionTime
                                     text: sessionRow.updated
                                     color: root.textMuted
-                                    font.pixelSize: 9
+                                    font.pixelSize: 8
                                 }
                             }
                         }
@@ -369,14 +448,14 @@ ApplicationWindow {
                     }
                 }
 
-                Hairline { Layout.fillWidth: true; Layout.topMargin: 12; Layout.bottomMargin: 14 }
+                Hairline { Layout.fillWidth: true; Layout.topMargin: 10; Layout.bottomMargin: 10 }
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: 9
                     Rectangle {
-                        width: 30
-                        height: 30
-                        radius: 15
+                        Layout.preferredWidth: 26
+                        Layout.preferredHeight: 26
+                        radius: 7
                         color: "#243029"
                         Text {
                             anchors.centerIn: parent
@@ -387,9 +466,9 @@ ApplicationWindow {
                     }
                     Column {
                         Layout.fillWidth: true
-                        Text { text: "本地工作区"; color: root.textPrimary; font.pixelSize: 11 }
+                        Text { text: "当前项目"; color: root.textPrimary; font.pixelSize: 10; font.weight: Font.Medium }
                         Text {
-                            width: sidebar.width - 76
+                            width: sidebar.width - 68
                             text: controller ? controller.workspacePath : ""
                             color: root.textMuted
                             font.pixelSize: 9
@@ -399,9 +478,9 @@ ApplicationWindow {
                 }
                 QuietButton {
                     Layout.fillWidth: true
-                    Layout.topMargin: 10
-                    label: "打开项目文件夹"
-                    glyph: "⌁"
+                    Layout.topMargin: 8
+                    label: "切换项目"
+                    glyph: "↗"
                     enabled: controller ? !controller.busy : false
                     onClicked: projectFolderDialog.open()
                 }
@@ -412,6 +491,7 @@ ApplicationWindow {
 
         Rectangle {
             id: workspace
+            objectName: "workspace"
             Layout.fillWidth: true
             Layout.fillHeight: true
             color: root.canvas
@@ -422,47 +502,53 @@ ApplicationWindow {
 
                 RowLayout {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 72
-                    Layout.leftMargin: 30
-                    Layout.rightMargin: 30
-                    spacing: 14
+                    Layout.preferredHeight: 64
+                    Layout.leftMargin: 24
+                    Layout.rightMargin: 18
+                    spacing: 12
                     Column {
                         Layout.fillWidth: true
-                        spacing: 3
+                        spacing: 4
+                        Row {
+                            spacing: 6
+                            Text {
+                                text: "YF /"
+                                color: root.accent
+                                font.pixelSize: 8
+                                font.weight: Font.DemiBold
+                                font.letterSpacing: 1.0
+                            }
+                            Text {
+                                width: Math.min(420, workspace.width - 420)
+                                text: controller ? controller.workspacePath : ""
+                                color: root.textMuted
+                                font.pixelSize: 8
+                                elide: Text.ElideMiddle
+                            }
+                        }
                         Text {
                             text: controller ? controller.currentSessionTitle : ""
                             color: root.textPrimary
-                            font.pixelSize: 18
+                            font.pixelSize: 16
                             font.weight: Font.DemiBold
                             elide: Text.ElideRight
                         }
-                        Row {
-                            spacing: 7
-                            Rectangle {
-                                width: 7
-                                height: 7
-                                radius: 4
-                                color: controller && controller.busy ? root.accent : root.success
-                                anchors.verticalCenter: parent.verticalCenter
-                                SequentialAnimation on opacity {
-                                    running: controller ? controller.busy : false
-                                    loops: Animation.Infinite
-                                    NumberAnimation { to: 0.3; duration: 650 }
-                                    NumberAnimation { to: 1; duration: 650 }
-                                }
-                            }
-                            Text {
-                                text: controller ? controller.statusText : ""
-                                color: root.textMuted
-                                font.pixelSize: 10
-                            }
-                        }
+                    }
+                    MetaPill {
+                        label: controller ? controller.statusText : ""
+                        dotColor: controller && controller.busy ? root.accent : root.success
                     }
                     QuietButton {
                         label: "取消"
                         glyph: "×"
                         visible: controller ? controller.busy : false
                         onClicked: controller.cancelRun()
+                    }
+                    ToolButton {
+                        glyph: root.inspectorOpen ? "×" : "≡"
+                        tooltip: root.inspectorOpen ? "关闭工作台" : "打开工作台"
+                        selected: root.inspectorOpen
+                        onClicked: root.inspectorOpen = !root.inspectorOpen
                     }
                 }
 
@@ -476,12 +562,12 @@ ApplicationWindow {
                     ListView {
                         id: conversation
                         anchors.fill: parent
-                        anchors.leftMargin: Math.max(34, (width - 860) / 2)
-                        anchors.rightMargin: Math.max(34, (width - 860) / 2)
-                        anchors.topMargin: 26
-                        anchors.bottomMargin: 18
+                        anchors.leftMargin: Math.max(42, (parent.width - 790) / 2)
+                        anchors.rightMargin: Math.max(42, (parent.width - 790) / 2)
+                        anchors.topMargin: 30
+                        anchors.bottomMargin: 22
                         model: controller ? controller.messageModel : null
-                        spacing: 24
+                        spacing: 28
                         clip: true
                         boundsBehavior: Flickable.StopAtBounds
                         ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
@@ -501,22 +587,38 @@ ApplicationWindow {
                             Column {
                                 id: contentColumn
                                 width: parent.width
-                                spacing: 7
+                                spacing: 9
 
                                 Row {
                                     anchors.right: messageDelegate.isUser ? parent.right : undefined
                                     spacing: 8
+                                    Rectangle {
+                                        visible: !messageDelegate.isUser
+                                        width: 20
+                                        height: 20
+                                        radius: 5
+                                        color: messageDelegate.pending ? root.accentSoft : root.raised
+                                        Text {
+                                            anchors.centerIn: parent
+                                            text: messageDelegate.pending ? "·" : "Y"
+                                            color: root.accent
+                                            font.pixelSize: 9
+                                            font.weight: Font.Black
+                                        }
+                                    }
                                     Text {
-                                        text: messageDelegate.speaker.toUpperCase()
+                                        text: messageDelegate.isUser ? "YOU" : "YF / RESPONSE"
                                         color: messageDelegate.isUser ? root.accent : root.textMuted
-                                        font.pixelSize: 9
+                                        font.pixelSize: 8
                                         font.weight: Font.DemiBold
-                                        font.letterSpacing: 0.8
+                                        font.letterSpacing: 1.1
+                                        anchors.verticalCenter: parent.verticalCenter
                                     }
                                     Text {
                                         text: messageDelegate.timestamp
                                         color: root.textMuted
-                                        font.pixelSize: 9
+                                        font.pixelSize: 8
+                                        anchors.verticalCenter: parent.verticalCenter
                                     }
                                 }
 
@@ -526,57 +628,59 @@ ApplicationWindow {
                                     width: messageDelegate.isUser
                                            ? Math.min(messageText.implicitWidth + 32, parent.width * 0.78)
                                            : parent.width
-                                    height: messageText.implicitHeight + (messageDelegate.isUser ? 24 : 6)
-                                    radius: messageDelegate.isUser ? 14 : 0
-                                    color: messageDelegate.isUser ? "#20272E" : "transparent"
-                                    border.width: 0
-                                    Rectangle {
-                                        visible: !messageDelegate.isUser
-                                        width: 3
-                                        height: Math.max(28, parent.height - 4)
-                                        radius: 2
-                                        color: messageDelegate.pending ? root.accent : "#39434D"
-                                    }
+                                    height: messageText.implicitHeight + (messageDelegate.isUser ? 22 : 10)
+                                    radius: messageDelegate.isUser ? 10 : 0
+                                    color: messageDelegate.isUser ? root.raised : "transparent"
+                                    border.width: messageDelegate.isUser ? 1 : 0
+                                    border.color: root.lineStrong
                                     Text {
                                         id: messageText
                                         anchors.left: parent.left
-                                        anchors.leftMargin: messageDelegate.isUser ? 16 : 18
+                                        anchors.leftMargin: messageDelegate.isUser ? 15 : 28
                                         anchors.right: parent.right
-                                        anchors.rightMargin: messageDelegate.isUser ? 16 : 4
+                                        anchors.rightMargin: messageDelegate.isUser ? 15 : 8
                                         anchors.verticalCenter: parent.verticalCenter
                                         text: messageDelegate.content || (messageDelegate.pending ? "正在思考…" : "")
                                         color: root.textPrimary
                                         font.pixelSize: 14
-                                        lineHeight: 1.42
+                                        lineHeight: 1.48
                                         wrapMode: Text.Wrap
                                         textFormat: Text.MarkdownText
                                         onLinkActivated: link => Qt.openUrlExternally(link)
+                                    }
+                                    Rectangle {
+                                        visible: !messageDelegate.isUser
+                                        anchors.left: parent.left
+                                        anchors.top: parent.top
+                                        anchors.bottom: parent.bottom
+                                        width: 1
+                                        color: messageDelegate.pending ? root.accent : root.lineStrong
                                     }
                                 }
 
                                 Rectangle {
                                     visible: messageDelegate.isTool
                                     width: parent.width
-                                    height: 42
-                                    radius: 9
-                                    color: "#10151A"
+                                    height: 36
+                                    radius: 7
+                                    color: root.surfaceSoft
                                     border.color: root.line
                                     border.width: 1
                                     Row {
                                         anchors.fill: parent
-                                        anchors.leftMargin: 13
-                                        anchors.rightMargin: 13
-                                        spacing: 10
+                                        anchors.leftMargin: 11
+                                        anchors.rightMargin: 11
+                                        spacing: 9
                                         Text {
                                             text: messageDelegate.pending ? "◌" : "✓"
                                             color: messageDelegate.pending ? root.accent : root.success
-                                            font.pixelSize: 13
+                                            font.pixelSize: 11
                                             anchors.verticalCenter: parent.verticalCenter
                                         }
                                         Text {
                                             text: messageDelegate.content
                                             color: root.textSecondary
-                                            font.pixelSize: 11
+                                            font.pixelSize: 10
                                             anchors.verticalCenter: parent.verticalCenter
                                         }
                                     }
@@ -586,63 +690,77 @@ ApplicationWindow {
                     }
 
                     Column {
+                        id: taskEmptyState
                         visible: conversation.count === 0
                         anchors.centerIn: parent
-                        width: Math.min(520, parent.width - 80)
-                        spacing: 16
+                        width: Math.min(700, parent.width - 96)
+                        spacing: 0
                         opacity: 0
                         transform: Translate { id: emptyTranslate; y: 18 }
-                        Rectangle {
-                            anchors.horizontalCenter: parent.horizontalCenter
-                            width: 72
-                            height: 72
-                            radius: 23
-                            color: root.raised
-                            border.color: "#2F3942"
-                            border.width: 1
-                            Text {
-                                anchors.centerIn: parent
-                                text: "YF"
-                                color: root.accent
-                                font.pixelSize: 22
-                                font.weight: Font.Black
-                            }
-                        }
                         Text {
                             width: parent.width
-                            text: "从一个清晰的任务开始"
-                            color: root.textPrimary
-                            font.pixelSize: 25
+                            text: "LOCAL AGENT / 01"
+                            color: root.accent
+                            font.pixelSize: 9
                             font.weight: Font.DemiBold
-                            horizontalAlignment: Text.AlignHCenter
+                            font.letterSpacing: 1.8
                         }
                         Text {
                             width: parent.width
-                            text: "描述目标，YF-Harness 会在本地安全边界内规划、调用工具并保留完整运行记录。"
-                            color: root.textSecondary
-                            font.pixelSize: 13
-                            lineHeight: 1.4
+                            topPadding: 14
+                            text: "把想法变成\n可审阅的改动。"
+                            color: root.textPrimary
+                            font.pixelSize: 34
+                            font.weight: Font.DemiBold
+                            lineHeight: 1.05
                             wrapMode: Text.Wrap
-                            horizontalAlignment: Text.AlignHCenter
                         }
-                        Row {
-                            anchors.horizontalCenter: parent.horizontalCenter
-                            spacing: 8
+                        Text {
+                            width: Math.min(540, parent.width)
+                            topPadding: 16
+                            bottomPadding: 28
+                            text: "描述目标。YF-Harness 会先理解项目，再在本地安全边界内规划、执行并留下完整证据。"
+                            color: root.textSecondary
+                            font.pixelSize: 12
+                            lineHeight: 1.45
+                            wrapMode: Text.Wrap
+                        }
+                        Hairline { width: parent.width }
+                        Column {
+                            width: parent.width
                             Repeater {
-                                model: ["分析项目结构", "制定实施计划", "检查代码风险"]
+                                model: [
+                                    ["01", "理解这个项目", "扫描结构、规则与关键入口"],
+                                    ["02", "规划一次改动", "先给出可审阅的实施路径"],
+                                    ["03", "检查当前风险", "审查变更、边界与验证缺口"]
+                                ]
                                 Rectangle {
-                                    required property string modelData
-                                    width: suggestionLabel.implicitWidth + 24
-                                    height: 34
-                                    radius: 9
-                                    color: suggestionMouse.containsMouse ? "#20272E" : root.surface
-                                    border.color: root.line
-                                    Text {
-                                        id: suggestionLabel
-                                        anchors.centerIn: parent
-                                        text: modelData
-                                        color: root.textSecondary
-                                        font.pixelSize: 11
+                                    required property var modelData
+                                    width: parent.width
+                                    height: 54
+                                    color: suggestionMouse.containsMouse ? root.surfaceSoft : "transparent"
+                                    RowLayout {
+                                        anchors.fill: parent
+                                        anchors.leftMargin: 2
+                                        anchors.rightMargin: 4
+                                        spacing: 14
+                                        Text {
+                                            text: modelData[0]
+                                            color: root.textMuted
+                                            font.pixelSize: 8
+                                            font.letterSpacing: 1.0
+                                        }
+                                        ColumnLayout {
+                                            Layout.fillWidth: true
+                                            spacing: 2
+                                            Text { text: modelData[1]; color: root.textPrimary; font.pixelSize: 11; font.weight: Font.Medium }
+                                            Text { text: modelData[2]; color: root.textMuted; font.pixelSize: 9 }
+                                        }
+                                        Text {
+                                            text: "↗"
+                                            color: suggestionMouse.containsMouse ? root.accent : root.textMuted
+                                            font.pixelSize: 13
+                                        }
                                     }
                                     MouseArea {
                                         id: suggestionMouse
@@ -650,17 +768,19 @@ ApplicationWindow {
                                         hoverEnabled: true
                                         cursorShape: Qt.PointingHandCursor
                                         onClicked: {
-                                            promptInput.text = modelData
+                                            promptInput.text = modelData[1]
                                             promptInput.forceActiveFocus()
                                         }
                                     }
+                                    Hairline { anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom }
+                                    Behavior on color { ColorAnimation { duration: 100 } }
                                 }
                             }
                         }
                         Component.onCompleted: emptyEntrance.start()
                         ParallelAnimation {
                             id: emptyEntrance
-                            NumberAnimation { target: emptyState; property: "opacity"; to: 1; duration: 360; easing.type: Easing.OutCubic }
+                            NumberAnimation { target: taskEmptyState; property: "opacity"; to: 1; duration: 360; easing.type: Easing.OutCubic }
                             NumberAnimation { target: emptyTranslate; property: "y"; to: 0; duration: 420; easing.type: Easing.OutCubic }
                         }
                     }
@@ -669,11 +789,11 @@ ApplicationWindow {
                 Rectangle {
                     visible: controller ? controller.queueCount > 0 : false
                     Layout.fillWidth: true
-                    Layout.leftMargin: Math.max(26, (workspace.width - 900) / 2)
-                    Layout.rightMargin: Math.max(26, (workspace.width - 900) / 2)
-                    Layout.preferredHeight: 42
-                    radius: 10
-                    color: "#151B20"
+                    Layout.leftMargin: Math.max(32, (workspace.width - 820) / 2)
+                    Layout.rightMargin: Math.max(32, (workspace.width - 820) / 2)
+                    Layout.preferredHeight: 40
+                    radius: 8
+                    color: root.surfaceSoft
                     border.color: root.line
                     RowLayout {
                         anchors.fill: parent
@@ -705,11 +825,11 @@ ApplicationWindow {
                              && promptInput.text.indexOf(" ") < 0
                              && controller && controller.skillCount > 0
                     Layout.fillWidth: true
-                    Layout.leftMargin: Math.max(26, (workspace.width - 900) / 2)
-                    Layout.rightMargin: Math.max(26, (workspace.width - 900) / 2)
+                    Layout.leftMargin: Math.max(32, (workspace.width - 820) / 2)
+                    Layout.rightMargin: Math.max(32, (workspace.width - 820) / 2)
                     Layout.preferredHeight: visible ? Math.min(238, 48 + skillList.count * 54) : 0
-                    radius: 13
-                    color: "#171D23"
+                    radius: 10
+                    color: root.raised
                     border.width: 1
                     border.color: "#3B3329"
                     clip: true
@@ -815,29 +935,43 @@ ApplicationWindow {
 
                 Rectangle {
                     Layout.fillWidth: true
-                    Layout.leftMargin: Math.max(26, (workspace.width - 900) / 2)
-                    Layout.rightMargin: Math.max(26, (workspace.width - 900) / 2)
-                    Layout.bottomMargin: 22
-                    Layout.preferredHeight: controller && controller.attachmentCount > 0 ? 172 : 142
-                    radius: 15
-                    color: root.surface
+                    Layout.leftMargin: Math.max(32, (workspace.width - 820) / 2)
+                    Layout.rightMargin: Math.max(32, (workspace.width - 820) / 2)
+                    Layout.bottomMargin: 18
+                    Layout.preferredHeight: controller && controller.attachmentCount > 0 ? 160 : 128
+                    radius: 12
+                    color: "#111416"
                     border.width: 1
-                    border.color: promptInput.activeFocus ? "#4A3B2A" : root.line
+                    border.color: promptInput.activeFocus ? "#77542D" : root.lineStrong
+
+                    Rectangle {
+                        anchors.left: parent.left
+                        anchors.top: parent.top
+                        anchors.bottom: parent.bottom
+                        width: 2
+                        radius: 1
+                        color: promptInput.activeFocus ? root.accent : "transparent"
+                        Behavior on color { ColorAnimation { duration: 140 } }
+                    }
 
                     ColumnLayout {
                         anchors.fill: parent
-                        anchors.margins: 12
-                        spacing: 7
+                        anchors.leftMargin: 14
+                        anchors.rightMargin: 10
+                        anchors.topMargin: 10
+                        anchors.bottomMargin: 9
+                        spacing: 6
                         TextArea {
                             id: promptInput
+                            objectName: "promptInput"
                             Layout.fillWidth: true
                             Layout.fillHeight: true
-                            placeholderText: "描述你想完成的任务…"
+                            placeholderText: "给 YF-Harness 一个清晰的任务…"
                             placeholderTextColor: root.textMuted
                             color: root.textPrimary
                             selectionColor: root.accent
                             selectedTextColor: root.canvas
-                            font.pixelSize: 14
+                            font.pixelSize: 13
                             wrapMode: TextEdit.Wrap
                             background: Item { }
                             onTextChanged: {
@@ -924,7 +1058,7 @@ ApplicationWindow {
                             }
                             Switch {
                                 id: sendImageSwitch
-                                text: "发送图片内容"
+                                text: "允许上传原图"
                                 checked: false
                                 font.pixelSize: 10
                                 palette.text: root.textSecondary
@@ -934,14 +1068,14 @@ ApplicationWindow {
                                               : "默认仅在本地记录，不上传图片内容"
                             }
                             Text {
-                                text: "⌘ ↵ 发送"
+                                text: "$ 调用项目技能  ·  ⌘↵ 发送"
                                 color: root.textMuted
-                                font.pixelSize: 9
+                                font.pixelSize: 8
                             }
                             Item { Layout.fillWidth: true }
                             QuietButton {
                                 label: controller && controller.busy ? "排队" : "发送"
-                                glyph: controller && controller.busy ? "+" : "↑"
+                                glyph: controller && controller.busy ? "+" : "↗"
                                 prominent: true
                                 enabled: controller ? promptInput.text.trim().length > 0 : false
                                 onClicked: root.sendCurrentPrompt()
@@ -955,54 +1089,62 @@ ApplicationWindow {
 
         Hairline {
             Layout.fillHeight: true
+            visible: root.inspectorOpen
         }
 
         Rectangle {
             id: inspector
-            Layout.preferredWidth: root.width >= 1240 ? 284 : 240
+            objectName: "inspector"
+            Layout.preferredWidth: root.inspectorOpen ? (root.width >= 1320 ? 306 : 276) : 0
             Layout.fillHeight: true
             color: root.surface
             clip: true
+            opacity: root.inspectorOpen ? 1 : 0
 
             ColumnLayout {
                 anchors.fill: parent
-                anchors.margins: 16
+                anchors.margins: 14
                 spacing: 0
                 RowLayout {
                     Layout.fillWidth: true
                     Text {
-                        text: "工作台"
+                        text: "控制台"
                         color: root.textPrimary
-                        font.pixelSize: 14
+                        font.pixelSize: 13
                         font.weight: Font.DemiBold
                     }
                     Item { Layout.fillWidth: true }
                     Text {
-                        text: controller && controller.busy ? "● LIVE" : "LOCAL"
+                        text: controller && controller.busy ? "●  LIVE" : "LOCAL"
                         color: controller && controller.busy ? root.accent : root.textMuted
                         font.pixelSize: 9
                         font.letterSpacing: 0.8
+                    }
+                    ToolButton {
+                        glyph: "×"
+                        tooltip: "关闭控制台"
+                        onClicked: root.inspectorOpen = false
                     }
                 }
 
                 RowLayout {
                     Layout.fillWidth: true
-                    Layout.topMargin: 16
-                    spacing: 2
+                    Layout.topMargin: 14
+                    spacing: 3
                     Repeater {
                         model: ["运行", "上下文", "变更"]
                         Rectangle {
                             required property string modelData
                             required property int index
                             Layout.fillWidth: true
-                            height: 34
-                            radius: 8
-                            color: root.inspectorTab === index ? "#242B31" : "transparent"
+                            height: 32
+                            radius: 6
+                            color: root.inspectorTab === index ? root.raised : "transparent"
                             Text {
                                 anchors.centerIn: parent
                                 text: modelData
                                 color: root.inspectorTab === index ? root.textPrimary : root.textMuted
-                                font.pixelSize: 11
+                                font.pixelSize: 10
                                 font.weight: root.inspectorTab === index ? Font.DemiBold : Font.Normal
                             }
                             MouseArea {
@@ -1018,7 +1160,7 @@ ApplicationWindow {
                 StackLayout {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    Layout.topMargin: 14
+                    Layout.topMargin: 16
                     currentIndex: root.inspectorTab
 
                     ScrollView {
@@ -1027,7 +1169,7 @@ ApplicationWindow {
                         ColumnLayout {
                             width: parent.width
                             spacing: 0
-                            Text { text: "PROVIDER"; color: root.textMuted; font.pixelSize: 9; font.letterSpacing: 0.9 }
+                            Text { text: "模型来源"; color: root.textMuted; font.pixelSize: 9; font.letterSpacing: 0.8 }
                             ControlSelect {
                                 id: providerSelect
                                 Layout.fillWidth: true
@@ -1038,9 +1180,9 @@ ApplicationWindow {
                                     modelSelect.currentIndex = 0
                                 }
                             }
-                            Text { Layout.topMargin: 17; text: "MODEL"; color: root.textMuted; font.pixelSize: 9; font.letterSpacing: 0.9 }
+                            Text { Layout.topMargin: 14; text: "模型"; color: root.textMuted; font.pixelSize: 9; font.letterSpacing: 0.8 }
                             ControlSelect { id: modelSelect; Layout.fillWidth: true; Layout.topMargin: 7 }
-                            Text { Layout.topMargin: 17; text: "WORKFLOW"; color: root.textMuted; font.pixelSize: 9; font.letterSpacing: 0.9 }
+                            Text { Layout.topMargin: 14; text: "工作流"; color: root.textMuted; font.pixelSize: 9; font.letterSpacing: 0.8 }
                             ControlSelect {
                                 id: workflowSelect
                                 Layout.fillWidth: true
@@ -1060,7 +1202,7 @@ ApplicationWindow {
                                 font.pixelSize: 9
                                 wrapMode: Text.Wrap
                             }
-                            Text { Layout.topMargin: 17; text: "MODE"; color: root.textMuted; font.pixelSize: 9; font.letterSpacing: 0.9 }
+                            Text { Layout.topMargin: 14; text: "运行模式"; color: root.textMuted; font.pixelSize: 9; font.letterSpacing: 0.8 }
                             ControlSelect {
                                 id: modeSelect
                                 Layout.fillWidth: true
@@ -1068,7 +1210,7 @@ ApplicationWindow {
                                 model: ["agent", "chat", "plan", "review"]
                                 currentIndex: 0
                             }
-                            Text { Layout.topMargin: 17; text: "PERMISSIONS"; color: root.textMuted; font.pixelSize: 9; font.letterSpacing: 0.9 }
+                            Text { Layout.topMargin: 14; text: "权限策略"; color: root.textMuted; font.pixelSize: 9; font.letterSpacing: 0.8 }
                             ControlSelect {
                                 id: permissionSelect
                                 Layout.fillWidth: true
@@ -1311,7 +1453,7 @@ ApplicationWindow {
                 Text {
                     Layout.fillWidth: true
                     Layout.topMargin: 10
-                    text: "YF-Harness 0.6 · Local first"
+                    text: "YF-Harness 0.7 · Local first"
                     color: root.textMuted
                     font.pixelSize: 9
                     horizontalAlignment: Text.AlignHCenter
@@ -1327,7 +1469,8 @@ ApplicationWindow {
                 root.selectValue(permissionSelect,
                                  controller.workflowPermissions(workflowSelect.currentText))
             }
-            Behavior on Layout.preferredWidth { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+            Behavior on Layout.preferredWidth { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+            Behavior on opacity { NumberAnimation { duration: 140 } }
         }
     }
 

@@ -1,6 +1,6 @@
 # 桌面应用
 
-YF-Harness 0.6 将 Qt Quick 桌面窗口作为主要交互入口。它不是网页壳，也不需要先打开终端窗口；
+YF-Harness 0.7 将 Qt Quick 桌面窗口作为主要交互入口。它不是网页壳，也不需要先打开终端窗口；
 打包后的 `YF-Harness.app` 包含 Python、Qt 与项目运行时，可以从 Finder 双击启动。
 
 ## 直接运行源码
@@ -14,7 +14,7 @@ uv run yfh desktop
 
 默认 MockProvider 不需要 API Key。应用首次启动会在系统用户数据目录创建 SQLite；Provider、模型、
 workspace 和安全策略继续读取同一套 YF-Harness 配置。
-从 Finder 双击启动后，可点击左下角“打开项目文件夹”。最近选择只保存在本机的
+从 Finder 双击启动后，可点击左下角“切换项目”。最近选择只保存在本机的
 `desktop-state.json`，下次启动自动恢复，不会写进项目仓库。
 
 ## 生成 macOS App
@@ -26,10 +26,10 @@ workspace 和安全策略继续读取同一套 YF-Harness 配置。
 ```
 
 脚本会锁定并安装 `desktop-build` extra，使用 Qt 官方 `pyside6-deploy` / Nuitka 生成
-`dist/YF-Harness.app`，写入应用名、`local.yfharness.desktop` Bundle Identifier 和 0.6.0 版本，
+`dist/YF-Harness.app`，写入应用名、`local.yfharness.desktop` Bundle Identifier 和 0.7.0 版本，
 再执行 ad-hoc 签名、Plist 校验与 LaunchServices 启动 smoke。
 
-0.6 构建继续显式排除未使用的 WebEngine、Quick3D、Charts、Sensors 与 Test 顶层二进制，
+0.7 构建继续显式排除未使用的 WebEngine、Quick3D、Charts、Sensors 与 Test 顶层二进制，
 并以 320 MiB 为发布门禁。本机验证产物为 235 MB；不同 Qt 补丁版本可能有少量波动。
 
 构建完成后可执行：
@@ -48,9 +48,12 @@ Developer ID Application 证书重新签名，并提交 Apple notarization。项
 - 工具审批弹窗返回同一 `ApprovalDecision`，不会绕过 `ToolExecutor`、Policy 或 WorkspaceGuard。
 - 会话与消息仍写入同一个 SQLite Repository；CLI、TUI 与桌面版可以读取相同历史。
 - 新会话记录所属 workspace；桌面和 TUI 只列出当前项目会话，避免跨项目误执行。
-- `Esc` 取消当前运行，`⌘/Ctrl+N` 新建任务，`⌘/Ctrl+Enter` 发送。
+- `Esc` 优先取消当前运行，空闲时关闭控制台；`⌘/Ctrl+N` 新建任务，`⌘/Ctrl+Enter` 发送，`Ctrl+.` 打开或收起控制台。
 
-## 0.6 工作台
+## 0.7 精密编辑台
+
+- **主画布：** 控制台默认收起，对话、运行证据和 Composer 形成连续任务主线。
+- **控制台：** 点击标题栏按钮或按 `Ctrl+.` 打开运行、上下文和变更检查器；低频设置不再常驻挤压内容。
 
 - **运行：** Provider、模型、Plan/Agent/Review 模式与权限保持显式；Plan 完成后必须点击“执行此计划”才进入 Agent。
 - **上下文：** 展示当前实际注入的项目规则、自动相关文件、历史、工具定义、Token 预算和压缩状态。

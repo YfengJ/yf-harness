@@ -2,8 +2,8 @@
 
 ## 当前状态
 
-- 当前阶段：阶段 14（可信项目技能与桌面命令面板，已完成）
-- 整体状态：0.6.0 已发布到私密 GitHub；本地发布门与 8 个远端 CI Job 全部通过
+- 当前阶段：阶段 15（桌面界面二次重构，已完成）
+- 整体状态：0.7.0 桌面界面重构、本地发布门与 macOS App 验收已完成，等待远端 CI 归档
 - 初始仓库：空目录、非 Git 仓库
 - 当前风险：P1（安全边界、子进程、持久化、CLI/TUI 公共契约）
 
@@ -16,6 +16,16 @@
 - 完成阶段 0 的规划、风险、契约和验收基线。
 
 ## 当前进行
+
+- 用户否定 0.6.0 当前 UI；已启动桌面二次重构，目标是去除调试面板感、压缩无效空白并强化消息流和输入器的任务主线。
+- 当前工作树起点干净；Change Radar 无差异时为 P3/0，本次按 QML 公共交互契约人工标记 P2。
+- 规划技能的 session catchup 仍不支持 Codex 原生 session；已从现有三份持续规划文件恢复，不影响继续。
+- 已完成第一轮 QML 重构：紧凑左栏、64px 项目标题栏、默认收起的控制台、编辑稿式消息流、任务型空状态和新的 Composer；开发入口 smoke 与 seeded screenshot 成功。
+- 已完成第二轮视觉 QA：主画布与控制台展开两张开发截图均通过；新增 Inspector 真实截图回归，桌面专项 8 passed，Ruff/格式和桌面 mypy 通过。
+- `prepare-release` 已将本次视觉重构定为 0.7.0；Python 包、Qt Bundle、MCP 客户端、桌面页脚、Changelog、桌面文档和 lockfile 版本已经对齐。
+- 0.7.0 完整质量门通过：155 passed、82.83% 覆盖率，Ruff/format、核心 68 文件与桌面 3 文件 mypy、20/20 Eval、sdist/wheel 构建全部成功。
+- 0.7.0 macOS `YF-Harness.app` 已重建为 236 MiB；Plist 版本 0.7.0、Bundle ID、ad-hoc codesign 与 Bundle 可执行截图全部通过。
+- 最终 Change Radar 为 P1/40 且无 blocking gaps；目标 GitHub 仓库发布前再次确认为 `PRIVATE`。
 
 - 已完成阶段 14 官方能力复核与变更简报：选择“显式项目技能 + `$` 桌面命令面板”，不启用隐式触发、用户目录扫描或技能脚本执行。
 - 规划技能的 Codex session catchup 脚本仍不支持当前原生 session 格式；已直接从三份持续规划文件恢复状态，不影响实现。
@@ -152,6 +162,9 @@
 | 2026-08-30 | 0.6.0 macOS App | 235 MiB Bundle；Plist 0.6.0、ad-hoc codesign、LaunchServices smoke、Bundle 截图与视觉检查通过 |
 | 2026-08-30 | 0.6.0 Change Radar | P1/30，无 blocking gaps；依赖、迁移、运行时与界面风险均有直接验证证据 |
 | 2026-08-30 | 最终 0.6.0 CI `33275432095` | minimal-install、desktop-smoke 与 Linux/macOS/Windows × Python 3.12/3.13 全部通过 |
+| 2026-08-30 | 0.7.0 本地发布门 | 155 passed、82.83% 覆盖率；Ruff/format、核心与桌面 mypy、20/20 Eval、sdist/wheel 全部通过 |
+| 2026-08-30 | 0.7.0 macOS App | 236 MiB Bundle；Plist 0.7.0、Bundle ID、ad-hoc codesign、Bundle 主画布/控制台截图与视觉检查通过 |
+| 2026-08-30 | 0.7.0 Change Radar | P1/40，无 blocking gaps；锁文件、桌面运行和用户界面均有直接验证证据 |
 
 ## 错误与修复
 

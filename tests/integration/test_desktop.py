@@ -265,3 +265,39 @@ def test_desktop_qml_smoke_starts_without_runtime_errors(tmp_path: Path) -> None
     assert "failed to load" not in completed.stderr.lower()
     assert "TypeError" not in completed.stderr
     assert "ReferenceError" not in completed.stderr
+
+
+@pytest.mark.desktop
+def test_desktop_qml_renders_inspector_preview(tmp_path: Path) -> None:
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "QT_QPA_PLATFORM": "offscreen",
+            "QSG_RHI_BACKEND": "software",
+            "YFH_CONFIG_DIR": str(tmp_path / "config"),
+            "YFH_DATA_DIR": str(tmp_path / "data"),
+        }
+    )
+    screenshot = tmp_path / "inspector-preview.png"
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "yfharness.desktop.app",
+            "--screenshot",
+            str(screenshot),
+            "--preview-tab",
+            "1",
+        ],
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=15,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert screenshot.stat().st_size > 10_000
+    assert "TypeError" not in completed.stderr
+    assert "ReferenceError" not in completed.stderr
