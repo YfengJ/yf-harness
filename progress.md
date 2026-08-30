@@ -3,7 +3,7 @@
 ## 当前状态
 
 - 当前阶段：阶段 15（桌面界面二次重构，已完成）
-- 整体状态：0.7.0 桌面界面重构、本地发布门与 macOS App 验收已完成，等待远端 CI 归档
+- 整体状态：0.7.0 桌面界面重构、macOS App、私密 GitHub 发布与八项远端 CI 全部完成
 - 初始仓库：空目录、非 Git 仓库
 - 当前风险：P1（安全边界、子进程、持久化、CLI/TUI 公共契约）
 
@@ -165,6 +165,7 @@
 | 2026-08-30 | 0.7.0 本地发布门 | 155 passed、82.83% 覆盖率；Ruff/format、核心与桌面 mypy、20/20 Eval、sdist/wheel 全部通过 |
 | 2026-08-30 | 0.7.0 macOS App | 236 MiB Bundle；Plist 0.7.0、Bundle ID、ad-hoc codesign、Bundle 主画布/控制台截图与视觉检查通过 |
 | 2026-08-30 | 0.7.0 Change Radar | P1/40，无 blocking gaps；锁文件、桌面运行和用户界面均有直接验证证据 |
+| 2026-08-30 | 最终 0.7.0 CI `33309580532` | minimal-install、desktop-smoke 与 Linux/macOS/Windows × Python 3.12/3.13 八个 Job 全绿 |
 
 ## 错误与修复
 

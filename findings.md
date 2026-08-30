@@ -138,3 +138,4 @@
 - 最终构建产物为 236 MiB 的 `YF-Harness.app`；Plist 版本 0.7.0、`local.yfharness.desktop` Bundle ID 与 ad-hoc codesign 完整性验证通过。
 - 由 Bundle 自身生成的 2960×1648 主画布截图通过视觉复核：主消息流不再被常驻三栏夹住，编辑稿式响应、紧凑导航和底部 Composer 的层级清晰；控制台展开截图也未出现溢出或布局回退。
 - 发布前 Change Radar 为 P1/40 且无 blocking gaps；P1 来自预期的版本/锁文件变更，不代表发现新的安全缺陷。
+- GitHub Actions run `33309580532` 最终确认 minimal-install、desktop-smoke 及 Ubuntu/macOS/Windows × Python 3.12/3.13 八个 Job 全绿；目标仓库在推送前确认为 `PRIVATE`。
