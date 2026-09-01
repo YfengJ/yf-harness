@@ -18,6 +18,7 @@
 - 0.10.1 最终离线门为 174 passed、83.49% 覆盖率、Ruff/format、核心/桌面 mypy、20/20 Eval、构建与隔离 wheel smoke。App 初次构建为 236 MiB、Plist 0.10.1、codesign 有效；MCP 版本来源随后改为 `__version__`，因此最终发布前需重建以保证 Bundle 对应最终源码。
 - 密钥审计不使用密钥字面量查询，而以完整 `sk-` 长模式检查：工作树、Git 历史、临时配置/日志/脚本、临时 SQLite、解包 wheel/sdist 和 App Bundle 全部无匹配；远端仓库确认 `PRIVATE`。
 - 最终 review 无可操作缺陷；Change Radar 的 P1/30 由补丁版本元数据和 `uv.lock` 触发，而非新依赖，隔离 wheel、完整测试和最终 App 覆盖该风险。MCP clientInfo 已改为读取 `__version__`，以后无需手工同步。
+- 私密发布完成：提交 `59e0da8` 对应 GitHub Actions run `33500549560`，minimal-install、desktop-smoke 与 Ubuntu/macOS/Windows × Python 3.12/3.13 共 8/8 Job 全绿；缓存 annotation 不影响任何 Job conclusion。
 
 ## 阶段 18：0.10 性能、上下文与额度纵深（2026-09-01）
 - 起点仓库干净，`main` 与私密远端均在 `7618270`；无差异时 Change Radar 为 P3/0，但上下文/存储/配置/桌面联动按 P1 管理。

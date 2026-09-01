@@ -2,8 +2,8 @@
 
 ## 当前状态
 
-- 当前阶段：阶段 19（DeepSeek 真实 API 纵向验收与凭据安全）
-- 整体状态：0.10.0 发布基线干净；正在进行真实 DeepSeek 网络验收，凭据禁止落盘或上传
+- 当前阶段：阶段 19（DeepSeek 真实 API 纵向验收与凭据安全，已完成）
+- 整体状态：0.10.1 已完成 DeepSeek 实机验收、缺陷修复、凭据审计、App 打包、私密发布与跨平台 CI
 - 初始仓库：空目录、非 Git 仓库
 - 当前风险：P1（安全边界、子进程、持久化、CLI/TUI 公共契约）
 
@@ -37,6 +37,7 @@
 - prepare-release review 将 MCP `clientInfo.version` 改为直接复用包 `__version__`，消除上次发布曾出现的手工版本漂移；MCP 专项与运行时元数据测试通过，需用最终源码再构建一次 App 后提交。
 - 最终源码 App 已再次构建并验证为 236 MiB、Plist 0.10.1、codesign PASS；最终 Change Radar P1/30、无 blocking gap，P1 仅来自版本元数据与 lockfile，相关安装/构建证据齐全。
 - 清理临时目录时直接 `rm -rf` 被执行安全策略拒绝且未产生删除；改为把三个本轮创建的精确目录移动到 `/Users/yfengj/.Trash/`，原 `/tmp` 路径均已不存在，数据仍可从废纸篓恢复。
+- 0.10.1 功能提交 `59e0da8` 已推送私密 `YfengJ/yf-harness`；GitHub Actions CI `33500549560` 的 8 个 Job 全绿。两条 cache reserve annotation 仅表示并发 Job 已创建同键缓存，不影响测试、构建或结论。
 
 - 新一轮起点为干净 `main`，HEAD/远端均为 `7618270`；初始 Change Radar P3/0。规划恢复脚本仍不解析 Codex 原生 session，已从三份规划文件、Git 和源码恢复。
 - 初审确认 usage_records 已持久化每次运行 Token/成本/估算标记/耗时，但 Repository 没有任何会话、今日或本月聚合接口，桌面目前只显示当次 usage。
