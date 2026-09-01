@@ -2,8 +2,8 @@
 
 ## 当前状态
 
-- 当前阶段：阶段 18（0.10 性能、上下文与额度纵深，发布验证）
-- 整体状态：0.10 本地实现与发布门完成；待提交、推送私密 GitHub 和验证远端 CI
+- 当前阶段：阶段 18（0.10 性能、上下文与额度纵深，已完成）
+- 整体状态：0.10.0 已完成实现、审查、App 打包、私密 GitHub 发布与跨平台 CI 验证
 - 初始仓库：空目录、非 Git 仓库
 - 当前风险：P1（安全边界、子进程、持久化、CLI/TUI 公共契约）
 
@@ -33,7 +33,8 @@
 - 首次 0.10 隔离 wheel 安装暴露运行时 `yfh --version` 仍为 0.9.0，且部署 spec/MCP clientInfo 也残留旧版本；已全部对齐并增加“运行时版本 = 安装元数据”回归。一次 `rg` 搜索因 pattern 以 `--version` 开头被当作参数而失败，改用 `rg --` 后完成残留扫描。
 - 第二轮 review 修复工具后续步骤丢失“已复用摘要”状态和无最近 user 时目标降级；最终静态门通过，170 passed，覆盖率 83.21%，20/20 Eval、0.10.0 sdist/wheel 与隔离安装全部成功。
 - 0.10.0 macOS `YF-Harness.app` 已重建为 236 MiB；Plist 短版本/构建版本、ad-hoc 深度签名、Bundle 直接截图和运行/上下文 Inspector 视觉检查均通过。
-- 最终 Change Radar 为 P1/50 且无 blocking gaps；私密仓库 `YfengJ/yf-harness` 已再次确认为 `PRIVATE`、默认分支为 `main`，当前只剩提交、推送和远端 CI 证据。
+- 最终 Change Radar 为 P1/50 且无 blocking gaps；私密仓库 `YfengJ/yf-harness` 已再次确认为 `PRIVATE`、默认分支为 `main`。
+- 功能提交 `0a46291` 已推送；GitHub Actions CI 运行 `33479652726` 的 8 个任务全部通过，覆盖 Ubuntu/macOS/Windows、Python 3.12/3.13、最小安装和桌面 smoke。Ubuntu 的并发 cache reserve 提示不影响任务结论。
 
 - 已从当前 0.8.0 Bundle 截图确认底部动作固定行争宽、输入区空耗、低对比黑色日志感和左栏重复表达四类核心问题。
 - 已按 frontend-design 确定“蓝图工作室”新方向；按最新界面审查规则将长文本、可见焦点、空状态、错误下一步与多尺寸无溢出设为硬门禁。

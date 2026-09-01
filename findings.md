@@ -16,6 +16,7 @@
 - 第二轮 review 修复多步 Agent 在工具后重建上下文时把已有摘要状态重置为 `none`，并在最近窗口没有 user 消息时保留上一摘要的真实 goal/next step。
 - 发布门最终证据：170 passed、83.21% 覆盖率、Ruff/format、核心 68 文件和桌面 3 文件 mypy、20/20 Eval、0.10.0 sdist/wheel、隔离 wheel 版本/Mock/usage、236 MiB App、Plist 0.10.0、深度 codesign 和真实 Bundle 截图全部通过。
 - 最终 Change Radar 为 P1/50、无 blocking gaps；P1 来源是版本/lockfile、配置 schema 和可执行链路的预期变化，相关风险均有直接验证。目标 GitHub 仓库复核为 `PRIVATE`。
+- 功能提交 `0a46291` 的 GitHub Actions CI 运行 `33479652726` 已完成：8/8 Job 全绿，覆盖 Ubuntu/macOS/Windows、Python 3.12/3.13、minimal-install 与 desktop-smoke；唯一 cache reserve annotation 属于并发缓存竞争，不影响构建或测试结果。
 - 现有结构化摘要由确定性规则提取目标、约束、决定、文件、测试与未解决项，优点是离线和可审计；风险是重复压缩时系统角色的旧摘要可能被首个 system message 过滤，需要增加多轮压缩与关键约束保留测试。
 
 ## 阶段 17：0.9 蓝图工作室桌面重构（2026-08-31）
