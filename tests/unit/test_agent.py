@@ -199,6 +199,22 @@ async def test_token_budget_is_enforced(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_output_length_finish_is_failed_after_usage_is_recorded(tmp_path: Path) -> None:
+    runner = AgentRunner(
+        provider=MockProvider(scripts=[MockScript(text="partial answer", finish_reason="length")]),
+        model=configured_model(),
+        tools=executor(tmp_path),
+    )
+
+    result = await runner.run("input", session_id="s1")
+
+    assert result.run.status is RunStatus.FAILED
+    assert "模型输出达到最大 Token 限制" in (result.run.error or "")
+    assert result.run.usage.total_tokens > 0
+    assert result.final_text == ""
+
+
+@pytest.mark.asyncio
 async def test_retry_only_before_first_event(tmp_path: Path) -> None:
     provider = MockProvider(
         scripts=[

@@ -20,7 +20,7 @@ from yfharness.core.agent_events import (
     ToolExecutionStarted,
 )
 from yfharness.core.context import ContextBuilder
-from yfharness.core.events import ErrorEvent, TextDelta, ToolCallCompleted, UsageEvent
+from yfharness.core.events import ErrorEvent, FinishEvent, TextDelta, ToolCallCompleted, UsageEvent
 from yfharness.core.exceptions import (
     AgentLimitError,
     HarnessError,
@@ -37,6 +37,7 @@ from yfharness.core.models import (
     ContentPart,
     ContentPartType,
     DomainModel,
+    FinishReason,
     Message,
     MessageRole,
     ModelConfig,
@@ -160,7 +161,7 @@ class AgentRunner:
         if run.session_id != session_id or run.state is not AgentState.CREATED:
             raise ValueError("existing_run must be a new run for the same session")
         self._active_task = asyncio.current_task()
-        definitions = self._available_tools()
+        definitions = self.available_tools()
         native_tools = self.model.supports_native_tools
         initial_compacted = False
         if self.context_builder is not None:
@@ -233,10 +234,15 @@ class AgentRunner:
                         stream=True,
                     )
                     await self._transition(run, AgentState.STREAMING)
-                    text, calls, request_usage = await self._model_turn(request)
+                    text, calls, request_usage, finish_reason = await self._model_turn(request)
                     run.usage, total_cost = self._add_usage(run.usage, request_usage, total_cost)
                     await self.event_sink(BudgetUpdated(usage=run.usage, cost=total_cost))
                     self._check_budget(run.usage, total_cost)
+                    if finish_reason == "length":
+                        raise AgentLimitError(
+                            "模型输出达到最大 Token 限制，结果可能不完整；"
+                            "请提高模型输出上限或缩短任务"
+                        )
 
                     if not native_tools:
                         try:
@@ -313,13 +319,16 @@ class AgentRunner:
             self._active_task = None
         return AgentRunResult(run=run, final_text=final_text, messages=messages)
 
-    async def _model_turn(self, request: ChatRequest) -> tuple[str, list[ToolCall], Usage]:
+    async def _model_turn(
+        self, request: ChatRequest
+    ) -> tuple[str, list[ToolCall], Usage, FinishReason]:
         last_error: ProviderError | None = None
         for attempt in range(self.limits.provider_retries + 1):
             emitted = False
             text_parts: list[str] = []
             calls: list[ToolCall] = []
             usage = Usage()
+            finish_reason: FinishReason = "unknown"
             try:
                 async for event in self.provider.stream_chat(request):
                     emitted = True
@@ -330,11 +339,13 @@ class AgentRunner:
                         calls.append(event.tool_call)
                     elif isinstance(event, UsageEvent):
                         usage = event.usage
+                    elif isinstance(event, FinishEvent):
+                        finish_reason = event.reason
                     elif isinstance(event, ErrorEvent):
                         raise ProviderError(
                             event.message, code=event.code, retryable=event.retryable
                         )
-                return "".join(text_parts), calls, usage
+                return "".join(text_parts), calls, usage, finish_reason
             except ProviderError as exc:
                 last_error = exc
                 if emitted or not exc.retryable or attempt >= self.limits.provider_retries:
@@ -363,7 +374,9 @@ class AgentRunner:
                 error_type=error_type,
             )
 
-    def _available_tools(self) -> list[ToolDefinition]:
+    def available_tools(self) -> list[ToolDefinition]:
+        """Return the exact tool definitions exposed to the current model mode."""
+
         definitions = self.tools.definitions()
         if self.mode in {AgentMode.PLAN, AgentMode.REVIEW, AgentMode.CHAT}:
             return [definition for definition in definitions if definition.read_only]

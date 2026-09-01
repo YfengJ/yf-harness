@@ -4,7 +4,16 @@
 
 ## [Unreleased]
 
-- 等待社区反馈与首个补丁版本。
+- 等待后续反馈。
+
+## [0.10.1] - 2026-09-01
+
+### Fixed
+
+- DeepSeek 示例改用当前 `deepseek-v4-flash` 模型与官方 API 地址，替换已停用的 `deepseek-chat` 名称。
+- `run --mode plan/review/chat --output json` 的 `visible_tools` 现在只报告实际暴露给模型的只读工具，不再把被模式过滤的写入和命令工具列为可见。
+- 流式 Provider 遇到 4xx/5xx 时会先有界读取并关闭错误响应，再返回统一 `ProviderError`，避免 `ResponseNotRead` 内部 traceback 泄漏到 CLI。
+- 模型以 `finish_reason=length` 结束时不再把截断或空白正文记为成功；Agent 会保留真实 usage 并给出提高输出上限或缩短任务的明确错误。
 
 ## [0.10.0] - 2026-09-01
 

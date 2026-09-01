@@ -2013,7 +2013,7 @@ ApplicationWindow {
                 Text {
                     Layout.fillWidth: true
                     Layout.topMargin: 10
-                    text: "YF-Harness 0.10 · Local first"
+                    text: "YF-Harness 0.10.1 · Local first"
                     color: root.textMuted
                     font.pixelSize: 9
                     horizontalAlignment: Text.AlignHCenter

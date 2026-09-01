@@ -125,6 +125,19 @@ def test_run_uses_selected_workflow_and_rejects_unknown_name() -> None:
     assert "unknown workflow" in missing.output
 
 
+def test_explicit_read_only_mode_reports_only_tools_exposed_to_model() -> None:
+    result = runner.invoke(
+        app,
+        ["run", "--no-save", "--output", "json", "--mode", "plan", "plan this"],
+    )
+
+    assert result.exit_code == 0, result.output
+    visible_tools = json.loads(result.output)["workflow"]["visible_tools"]
+    assert "read_file" in visible_tools
+    assert "write_file" not in visible_tools
+    assert "run_command" not in visible_tools
+
+
 def test_skills_list_show_and_explicit_run(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

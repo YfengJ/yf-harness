@@ -161,21 +161,23 @@ yfh sessions compact <session-id>
 
 ```toml
 default_provider = "deepseek"
-default_model = "deepseek_chat"
+default_model = "deepseek_v4_flash"
 
 [providers.deepseek]
 type = "openai_compatible"
 base_url = "${DEEPSEEK_BASE_URL}"
 api_key_env = "DEEPSEEK_API_KEY"
 timeout_seconds = 120
+include_reasoning = true
 
-[models.deepseek_chat]
-id = "deepseek_chat"
+[models.deepseek_v4_flash]
+id = "deepseek_v4_flash"
 provider = "deepseek"
-model = "由用户填写的模型名称"
+model = "deepseek-v4-flash"
 supports_streaming = true
 supports_native_tools = true
-context_window = 64000
+supports_reasoning = true
+context_window = 1000000
 
 [usage]
 daily_token_budget = 100000
@@ -185,10 +187,10 @@ monthly_cost_budget = 50.0
 ```
 
 ```bash
-export DEEPSEEK_BASE_URL='https://your-service.example/v1'
+export DEEPSEEK_BASE_URL='https://api.deepseek.com'
 export DEEPSEEK_API_KEY='...'
 yfh doctor
-yfh run --provider deepseek --model deepseek_chat "你好"
+yfh run --provider deepseek --model deepseek_v4_flash "你好"
 ```
 
 本地兼容服务可把 `base_url` 设置为如 `http://127.0.0.1:11434/v1` 并留空 `api_key_env`。
@@ -246,7 +248,7 @@ yfh frameworks list
 yfh frameworks doctor
 yfh frameworks run langchain "总结这段需求"
 yfh frameworks run llamaindex "分析这个问题" --output json
-yfh frameworks run autogen "给出实施方案" --provider deepseek --model deepseek_chat
+yfh frameworks run autogen "给出实施方案" --provider deepseek --model deepseek_v4_flash
 ```
 
 也可只安装一个：`pip install 'yf-harness[langchain]'`、`[llamaindex]` 或 `[autogen]`。

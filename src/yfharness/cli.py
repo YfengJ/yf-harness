@@ -680,7 +680,7 @@ async def _run_once(
             "label": workflow.label,
             "mode": mode.value,
             "permissions": permissions.value,
-            "visible_tools": [item.name for item in tool_executor.definitions()],
+            "visible_tools": [item.name for item in runner.available_tools()],
             "hook_count": len(workflow.hooks),
         },
         "text": result.final_text,

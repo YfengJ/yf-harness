@@ -1,5 +1,24 @@
 # 发现与决策
 
+## 阶段 19：DeepSeek 真实 API 纵向验收与凭据安全（2026-09-01）
+- 起点 `main` 干净且与私密远端同为 `bb8af96`；Change Radar 在无 diff 时为 P3/0，但真实凭据、外部计费和 Agent 工具链人工按 P1 管理。
+- README 与 `examples/config.example.toml` 已提供 DeepSeek 配置：`type = "openai_compatible"`、`api_key_env = "DEEPSEEK_API_KEY"`；源码的 Provider/框架运行时均只按环境变量名取值，密钥不属于持久化配置模型。
+- 凭据测试方案：不在仓库创建 `.env` 或含密钥 TOML，不把密钥拼入命令行；使用无回显交互把它注入单个临时 shell 环境，所有配置、数据库和日志放在仓库外临时目录，进程退出即销毁环境。
+- 验收顺序采用低成本递进：鉴权/模型与流式 usage → CLI 持久化 → Agent 原生工具调用 → 同会话恢复与摘要 → 本地额度聚合 → 桌面 Controller 后端；只有直接证据显示项目行为错误才修改源码。
+- DeepSeek 当前官方 OpenAI-format base URL 仍为 `https://api.deepseek.com`，当前模型是 `deepseek-v4-flash`、`deepseek-v4-pro`（另有实验视觉模型），均支持 Chat Completions 与工具调用；项目通用 HTTP 路径与此兼容。[DeepSeek 首次调用](https://api-docs.deepseek.com/) [模型与价格](https://api-docs.deepseek.com/quick_start/pricing/)
+- 项目示例仍配置 `deepseek-chat`，但 DeepSeek 官方已声明该旧名称在 2026-07-24 停用；当前日期已超过停用日，因此 README/example 的默认首次运行路径已失效，必须改为 `deepseek-v4-flash` 或 `deepseek-v4-pro` 并补回归。
+- 新模型的 thinking + tools 多轮契约要求把上一轮 `reasoning_content` 连同 assistant tool call 回传；当前领域 `Message` 没有 reasoning 字段，Provider 只可选择把 reasoning 流作为观察事件，Agent 后续消息无法保留它。需用真实 API 判断默认请求是否触发该限制，再决定加入 provider 请求模式控制还是扩展持久化消息契约。[DeepSeek Thinking Mode](https://api-docs.deepseek.com/guides/thinking_mode/)
+- 真实鉴权与 `/models` 已通过；单轮 `deepseek-v4-flash` 返回真实 usage 2,103 Token，说明 base URL、Bearer 认证、JSON 响应与 usage 归一化均兼容，且密钥未出现在 stdout。
+- 15 个工具的 Plan 请求在完成前超过 12k 累计 Token。可能原因包括 V4 默认 thinking 消耗、重复工具调用或第二轮缺失 reasoning；需要最小化为单工具协议探针后再判断，不能直接归咎上游或简单抬高预算。
+- 最小工具协议首轮含 reasoning 仍能在不回传 reasoning 字段的现有 Message 下完成第二轮，因此当前 DeepSeek V4 API 对该非严格路径保持兼容；12k 超限的实际原因是自动选择 5 份文件后每轮输入约 7k、两轮累计 15,704，预算门行为正确。
+- CLI `workflow.visible_tools` 原先直接枚举 `ToolExecutor.definitions()`，而 Agent 在 Plan/Review/Chat 内部还会过滤非只读工具；实机 JSON 因此把 15 个工具错报为可见，实际请求只有 8 个。修复改为复用 Agent 的确切暴露集合并增加显式 `--mode plan` 回归。
+- 流式非 2xx 使用 `client.send(..., stream=True)`，旧 `_raise_for_status` 立即访问 `response.json()`，导致 `httpx.ResponseNotRead` 逃逸并打印内部 traceback。修复对错误流最多读取 64 KiB、关闭响应并构造统一 `ProviderError`；真实 401 已验证无 traceback。
+- DeepSeek V4 默认 thinking 在较小 `max_output_tokens=256` 下可能耗尽输出预算而不产生正文；Provider 正确发出 `FinishEvent(reason="length")`，但 Agent 只收集 text/tool/usage、忽略 finish reason，导致空白成功。应在保留真实 usage 后把 length 作为明确失败，不得把截断结果记为完成。
+- 完整实机矩阵已覆盖核心 CLI（流式/JSON/鉴权错误）、只读原生工具两轮、会话恢复、手动摘要复用、usage 聚合、LangChain/LlamaIndex/AutoGen、桌面 Controller 和 Textual TUI；除已修四项外未发现新的真实 Provider 兼容失败。
+- 0.10.1 最终离线门为 174 passed、83.49% 覆盖率、Ruff/format、核心/桌面 mypy、20/20 Eval、构建与隔离 wheel smoke。App 初次构建为 236 MiB、Plist 0.10.1、codesign 有效；MCP 版本来源随后改为 `__version__`，因此最终发布前需重建以保证 Bundle 对应最终源码。
+- 密钥审计不使用密钥字面量查询，而以完整 `sk-` 长模式检查：工作树、Git 历史、临时配置/日志/脚本、临时 SQLite、解包 wheel/sdist 和 App Bundle 全部无匹配；远端仓库确认 `PRIVATE`。
+- 最终 review 无可操作缺陷；Change Radar 的 P1/30 由补丁版本元数据和 `uv.lock` 触发，而非新依赖，隔离 wheel、完整测试和最终 App 覆盖该风险。MCP clientInfo 已改为读取 `__version__`，以后无需手工同步。
+
 ## 阶段 18：0.10 性能、上下文与额度纵深（2026-09-01）
 - 起点仓库干净，`main` 与私密远端均在 `7618270`；无差异时 Change Radar 为 P3/0，但上下文/存储/配置/桌面联动按 P1 管理。
 - `usage_records` 已保存 provider/model/input/output/total/estimated/cost/duration/created_at，且 runs 关联 session；缺口不是采集，而是 Repository 没有聚合查询，桌面和 CLI 都无法展示会话、今日、本月累计或估算占比。

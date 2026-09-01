@@ -220,3 +220,46 @@ async def test_retryable_http_status_is_retried() -> None:
     finally:
         await client.aclose()
     assert attempts == 2
+
+
+@pytest.mark.asyncio
+async def test_streaming_http_error_is_read_closed_and_normalized() -> None:
+    async def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, json={"error": {"message": "invalid credentials"}})
+
+    instance, client = provider(httpx.MockTransport(handler))
+    try:
+        with pytest.raises(ProviderError, match="invalid credentials") as raised:
+            _ = [event async for event in instance.stream_chat(request())]
+    finally:
+        await client.aclose()
+
+    assert raised.value.code == "http_error"
+    assert raised.value.status_code == 401
+    assert not raised.value.retryable
+
+
+@pytest.mark.asyncio
+async def test_streaming_retryable_status_is_retried() -> None:
+    attempts = 0
+
+    async def handler(_: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            return httpx.Response(429, json={"error": {"message": "slow down"}})
+        return httpx.Response(
+            200,
+            text='data: {"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}\n\n'
+            "data: [DONE]\n\n",
+            headers={"content-type": "text/event-stream"},
+        )
+
+    instance, client = provider(httpx.MockTransport(handler), retries=1)
+    try:
+        events = [event async for event in instance.stream_chat(request())]
+    finally:
+        await client.aclose()
+
+    assert attempts == 2
+    assert any(isinstance(event, TextDelta) and event.text == "ok" for event in events)

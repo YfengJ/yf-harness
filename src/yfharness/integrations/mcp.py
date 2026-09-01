@@ -14,6 +14,7 @@ from typing import Any, ClassVar, TypeVar
 
 from pydantic import ConfigDict
 
+from yfharness import __version__
 from yfharness.config.models import AppConfig, MCPServerSettings
 from yfharness.core.exceptions import HarnessError
 from yfharness.core.models import ToolDefinition, ToolResult, ToolRiskLevel
@@ -133,7 +134,7 @@ class MCPClient:
             {
                 "protocolVersion": _PROTOCOL_VERSION,
                 "capabilities": {},
-                "clientInfo": {"name": "YF-Harness", "version": "0.10"},
+                "clientInfo": {"name": "YF-Harness", "version": __version__},
             },
             timeout_seconds=self.settings.startup_timeout,
         )

@@ -26,7 +26,7 @@ workspace 和安全策略继续读取同一套 YF-Harness 配置。
 ```
 
 脚本会锁定并安装 `desktop-build` extra，使用 Qt 官方 `pyside6-deploy` / Nuitka 生成
-`dist/YF-Harness.app`，写入应用名、`local.yfharness.desktop` Bundle Identifier 和 0.10.0 版本，
+`dist/YF-Harness.app`，写入应用名、`local.yfharness.desktop` Bundle Identifier 和 0.10.1 版本，
 再执行 ad-hoc 签名、Plist 校验与 LaunchServices 启动 smoke。
 
 0.9 构建继续显式排除未使用的 WebEngine、Quick3D、Charts、Sensors 与 Test 顶层二进制，

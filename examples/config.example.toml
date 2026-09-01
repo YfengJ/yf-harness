@@ -1,5 +1,5 @@
 default_provider = "deepseek"
-default_model = "deepseek_chat"
+default_model = "deepseek_v4_flash"
 default_workflow = "balanced"
 
 [providers.deepseek]
@@ -8,18 +8,19 @@ base_url = "${DEEPSEEK_BASE_URL}"
 api_key_env = "DEEPSEEK_API_KEY"
 timeout_seconds = 120
 max_retries = 2
+include_reasoning = true
 
-[models.deepseek_chat]
-id = "deepseek_chat"
+[models.deepseek_v4_flash]
+id = "deepseek_v4_flash"
 provider = "deepseek"
-model = "请填写当前服务实际支持的模型名称"
+model = "deepseek-v4-flash"
 supports_streaming = true
 supports_native_tools = true
-supports_reasoning = false
+supports_reasoning = true
 supports_system_message = true
 supports_image_input = false
-context_window = 64000
-max_output_tokens = 4096
+context_window = 1000000
+max_output_tokens = 8192
 
 [providers.local]
 type = "openai_compatible"

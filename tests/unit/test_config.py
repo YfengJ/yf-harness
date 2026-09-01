@@ -15,6 +15,9 @@ def test_example_config_keeps_root_keys_at_document_scope() -> None:
 
     assert payload["default_workflow"] == "balanced"
     assert "default_workflow" not in payload["usage"]
+    assert payload["default_model"] == "deepseek_v4_flash"
+    assert payload["models"]["deepseek_v4_flash"]["model"] == "deepseek-v4-flash"
+    assert payload["models"]["deepseek_v4_flash"]["supports_reasoning"] is True
 
 
 def test_config_precedence_and_environment_expansion(tmp_path: Path) -> None:

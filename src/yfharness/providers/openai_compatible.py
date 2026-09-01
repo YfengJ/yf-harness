@@ -42,6 +42,7 @@ from yfharness.core.models import (
 from yfharness.providers.base import Provider
 
 _RETRYABLE_STATUS = {408, 409, 425, 429, 500, 502, 503, 504}
+_MAX_ERROR_BODY_BYTES = 64 * 1024
 
 
 class OpenAICompatibleProvider(Provider):
@@ -391,7 +392,7 @@ class OpenAICompatibleProvider(Provider):
                     await response.aclose()
                     await asyncio.sleep(0.25 * (2**attempt))
                     continue
-                self._raise_for_status(response)
+                await self._raise_for_stream_status(response)
                 return response
             except (httpx.TimeoutException, httpx.NetworkError) as exc:
                 last_error = exc
@@ -414,19 +415,43 @@ class OpenAICompatibleProvider(Provider):
     def _raise_for_status(response: httpx.Response) -> None:
         if response.is_success:
             return
-        retryable = response.status_code in _RETRYABLE_STATUS
-        message = f"Provider HTTP {response.status_code}"
+        raise OpenAICompatibleProvider._http_status_error(
+            response.status_code,
+            response.content,
+        )
+
+    @staticmethod
+    async def _raise_for_stream_status(response: httpx.Response) -> None:
+        if response.is_success:
+            return
+        body = bytearray()
         try:
-            payload = response.json()
+            async for chunk in response.aiter_bytes():
+                remaining = _MAX_ERROR_BODY_BYTES - len(body)
+                if remaining <= 0:
+                    break
+                body.extend(chunk[:remaining])
+                if len(body) >= _MAX_ERROR_BODY_BYTES:
+                    break
+        finally:
+            await response.aclose()
+        raise OpenAICompatibleProvider._http_status_error(response.status_code, bytes(body))
+
+    @staticmethod
+    def _http_status_error(status_code: int, body: bytes) -> ProviderError:
+        retryable = status_code in _RETRYABLE_STATUS
+        message = f"Provider HTTP {status_code}"
+        try:
+            payload = json.loads(body)
             if isinstance(payload, dict) and isinstance(payload.get("error"), dict):
                 message = str(payload["error"].get("message", message))
         except (json.JSONDecodeError, UnicodeDecodeError):
             pass
-        raise ProviderError(
+        return ProviderError(
             message,
             code="http_error",
             retryable=retryable,
-            status_code=response.status_code,
+            status_code=status_code,
         )
 
     @staticmethod

@@ -24,7 +24,7 @@ yfh frameworks run llamaindex "列出上下文压缩风险" --output json
 yfh frameworks run autogen "拟定测试策略" --system "回答要简洁"
 
 # 复用 examples/config.example.toml 形式的远程配置
-yfh frameworks run langchain "你好" --provider deepseek --model deepseek_chat
+yfh frameworks run langchain "你好" --provider deepseek --model deepseek_v4_flash
 ```
 
 `--output json` 返回稳定字段：`framework`、`provider`、`model`、`text`、`duration`、`usage` 和

@@ -23,6 +23,7 @@ from yfharness.core.events import (
 from yfharness.core.exceptions import ProviderError
 from yfharness.core.models import (
     ChatRequest,
+    FinishReason,
     HealthStatus,
     ModelCapabilities,
     ProviderHealth,
@@ -47,6 +48,7 @@ class MockScript:
     tool_call: ToolCall | None = None
     failure: MockFailure | None = None
     delay_seconds: float = 0.0
+    finish_reason: FinishReason = "stop"
 
     @classmethod
     def from_mapping(cls, value: dict[str, Any]) -> MockScript:
@@ -57,6 +59,7 @@ class MockScript:
             tool_call=ToolCall.model_validate(tool) if tool else None,
             failure=MockFailure(value["failure"]) if value.get("failure") else None,
             delay_seconds=float(value.get("delay_seconds", 0)),
+            finish_reason=value.get("finish_reason", "stop"),
         )
 
 
@@ -148,7 +151,7 @@ class MockProvider(Provider):
             estimated=True,
         )
         yield UsageEvent(usage=usage)
-        yield FinishEvent(reason="stop")
+        yield FinishEvent(reason=script.finish_reason)
         yield StreamEnd()
 
     def _next_script(self) -> MockScript:

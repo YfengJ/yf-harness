@@ -2,8 +2,8 @@
 
 ## 当前状态
 
-- 当前阶段：阶段 18（0.10 性能、上下文与额度纵深，已完成）
-- 整体状态：0.10.0 已完成实现、审查、App 打包、私密 GitHub 发布与跨平台 CI 验证
+- 当前阶段：阶段 19（DeepSeek 真实 API 纵向验收与凭据安全）
+- 整体状态：0.10.0 发布基线干净；正在进行真实 DeepSeek 网络验收，凭据禁止落盘或上传
 - 初始仓库：空目录、非 Git 仓库
 - 当前风险：P1（安全边界、子进程、持久化、CLI/TUI 公共契约）
 
@@ -16,6 +16,27 @@
 - 完成阶段 0 的规划、风险、契约和验收基线。
 
 ## 当前进行
+
+- Stage 19 起点为干净 `main`，本地/远端均为 `bb8af96`，初始 Change Radar P3/0；真实外部 API 与凭据链路人工按 P1 管理。
+- 配置审计确认 DeepSeek 使用 `openai_compatible` Provider，项目配置只保存 `api_key_env = "DEEPSEEK_API_KEY"`，运行时从环境读取；测试将使用临时进程环境和仓库外临时配置/数据库，不记录密钥值。
+- 本轮验收将从低成本流式文本与 usage 开始，再覆盖原生工具调用、会话恢复、上下文压缩、额度聚合和桌面 Controller；任何失败先区分上游限制、配置问题与项目缺陷。
+- 官方契约核对发现示例模型 `deepseek-chat` 已于 2026-07-24 停用，当前应使用 `deepseek-v4-flash`/`deepseek-v4-pro`；另已锁定 thinking 工具多轮必须回传 `reasoning_content` 的潜在兼容风险，等待实机验证。
+- 无回显临时凭据环境已建立；`yfh doctor` 对 DeepSeek 配置、鉴权、模型列表和三个可选框架均返回 OK。首次误用 `yfh providers doctor`（不存在）后已改用顶层 `yfh doctor`，该帮助/入口可发现性差异留待 review。
+- 真实 `deepseek-v4-flash` 非流式 CLI 返回 `LIVE_OK`，上游 usage 为 2,071 input / 32 output / 2,103 total 且 `estimated=false`；流式文本也成功。
+- 首次只读 `read_file` Agent 请求触发 12,000 Token 预算上限，没有最终 JSON；因 `--no-save` 无 Trace，不重复同参数，改用单工具协议探针区分 thinking 消耗、工具循环和 `reasoning_content` 回传问题。
+- 单工具协议探针两轮均成功：首轮 417 Token、1 次工具调用、81 reasoning 字符；第二轮 483 Token 并返回正确结果。真实 `get_file_info` Agent 也以 2 步/1 工具完成，先前 12k 超限是自动文件上下文导致两轮累计 15,704 Token，不是循环。
+- 同一真实会话恢复成功；手动压缩后再次运行返回 `compaction_status=reused`。本地 usage 精确聚合真实 Token，估算为 0，未知成本运行数正确，且不声明 Provider 余额。
+- LangChain、LlamaIndex、AutoGen 三套原生适配器分别通过真实 DeepSeek，返回实际 usage；桌面 Controller 异步发送也返回 `DESKTOP_OK`，会话、上下文和三档用量状态均正常。
+- 已修复过期示例模型与 `--mode plan` JSON 错报写入工具，32 项首轮专项回归通过；真实复测确认 Plan 只报告 8 个只读工具。
+- 假凭据实测发现流式 401 在响应体未读取时抛 `ResponseNotRead` traceback；已改为有界读取/关闭并归一化，41 项专项回归通过，真实 401 复测只输出一行认证错误。
+- 认证恢复请求在临时 `max_output_tokens=256` 下全部消耗于 thinking、无正文且 `finish_reason=length`，现有 Agent 却判为成功；正在补“累计 usage 后显式输出上限失败”的修复。
+- Agent 现保留 FinishReason 并在累计 usage/预算后把 `length` 判为明确失败；46 项专项回归通过，真实 DeepSeek 1-Token 上限复测返回可操作错误，临时配置随后恢复为 8,192。
+- 真实 TUI 驱动通过：创建会话、DeepSeek Worker、SQLite 消息持久化与空闲终态均正确；授权进程随后显式 unset 并关闭。
+- 最终 0.10.1 本地门禁通过：Ruff/format、核心 68 文件与桌面 3 文件 mypy、174 passed、83.49% 覆盖率、20/20 Eval、sdist/wheel 和隔离 wheel 0.10.1 Mock smoke 全部成功。
+- 0.10.1 macOS App 已重建为 236 MiB，Plist 短版本/构建版本均为 0.10.1，深度 codesign 通过；wheel/sdist/App Bundle 的完整密钥模式扫描均为 PASS。
+- prepare-release review 将 MCP `clientInfo.version` 改为直接复用包 `__version__`，消除上次发布曾出现的手工版本漂移；MCP 专项与运行时元数据测试通过，需用最终源码再构建一次 App 后提交。
+- 最终源码 App 已再次构建并验证为 236 MiB、Plist 0.10.1、codesign PASS；最终 Change Radar P1/30、无 blocking gap，P1 仅来自版本元数据与 lockfile，相关安装/构建证据齐全。
+- 清理临时目录时直接 `rm -rf` 被执行安全策略拒绝且未产生删除；改为把三个本轮创建的精确目录移动到 `/Users/yfengj/.Trash/`，原 `/tmp` 路径均已不存在，数据仍可从废纸篓恢复。
 
 - 新一轮起点为干净 `main`，HEAD/远端均为 `7618270`；初始 Change Radar P3/0。规划恢复脚本仍不解析 Codex 原生 session，已从三份规划文件、Git 和源码恢复。
 - 初审确认 usage_records 已持久化每次运行 Token/成本/估算标记/耗时，但 Repository 没有任何会话、今日或本月聚合接口，桌面目前只显示当次 usage。
