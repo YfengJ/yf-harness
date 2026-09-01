@@ -10,9 +10,15 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
+from yfharness.core.compaction import CompactionSummary
 from yfharness.core.models import AgentRun, AgentState, Message, RunStatus, Usage
 from yfharness.storage.database import Database
-from yfharness.storage.models import FileChangeRecord, SessionRecord
+from yfharness.storage.models import (
+    FileChangeRecord,
+    SessionRecord,
+    UsageOverview,
+    UsageTotals,
+)
 
 
 def _now() -> str:
@@ -36,6 +42,13 @@ def _normalize_goal(goal: str | None, status: str) -> tuple[str | None, str]:
     return normalized, status
 
 
+def _session_record(row: sqlite3.Row) -> SessionRecord:
+    payload = dict(row)
+    raw_summary = payload.pop("context_summary_json", None)
+    payload["context_summary"] = json.loads(raw_summary) if raw_summary else None
+    return SessionRecord.model_validate(payload)
+
+
 class SessionRepository:
     def __init__(self, database: Database) -> None:
         self.database = database
@@ -50,6 +63,8 @@ class SessionRepository:
         workspace: Path | str | None = None,
         goal: str | None = None,
         goal_status: str = "inactive",
+        context_summary: CompactionSummary | None = None,
+        context_compacted_at: datetime | None = None,
     ) -> SessionRecord:
         normalized_goal, normalized_status = _normalize_goal(goal, goal_status)
         session_id = str(uuid4())
@@ -59,8 +74,9 @@ class SessionRepository:
                 """
                 INSERT INTO sessions(
                     id, title, provider, model, mode, workspace, goal, goal_status,
-                    goal_updated_at, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    goal_updated_at, context_summary_json, context_compacted_at,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     session_id,
@@ -72,6 +88,8 @@ class SessionRepository:
                     normalized_goal,
                     normalized_status,
                     now if normalized_goal is not None else None,
+                    context_summary.model_dump_json() if context_summary is not None else None,
+                    context_compacted_at.isoformat() if context_compacted_at is not None else None,
                     now,
                     now,
                 ),
@@ -86,7 +104,7 @@ class SessionRepository:
             row = await (
                 await connection.execute("SELECT * FROM sessions WHERE id = ?", (session_id,))
             ).fetchone()
-        return SessionRecord.model_validate(dict(row)) if row else None
+        return _session_record(row) if row else None
 
     async def list(
         self,
@@ -109,7 +127,7 @@ class SessionRepository:
         sql = f"SELECT * FROM sessions WHERE {' AND '.join(conditions)} ORDER BY updated_at DESC"
         async with self.database.connect() as connection:
             rows = await (await connection.execute(sql, params)).fetchall()
-        return [SessionRecord.model_validate(dict(row)) for row in rows]
+        return [_session_record(row) for row in rows]
 
     async def rename(self, session_id: str, title: str) -> bool:
         if not title.strip():
@@ -169,6 +187,26 @@ class SessionRepository:
             WHERE id = ?
             """,
             (provider, model, mode, _now(), session_id),
+        )
+
+    async def update_context_summary(
+        self,
+        session_id: str,
+        summary: CompactionSummary | None,
+    ) -> bool:
+        now = _now()
+        return await self._update(
+            """
+            UPDATE sessions
+            SET context_summary_json = ?, context_compacted_at = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                summary.model_dump_json() if summary is not None else None,
+                now if summary is not None else None,
+                now,
+                session_id,
+            ),
         )
 
     async def add_message(self, session_id: str, message: Message) -> None:
@@ -233,6 +271,8 @@ class SessionRepository:
             workspace=source.workspace,
             goal=source.goal,
             goal_status=source.goal_status,
+            context_summary=source.context_summary,
+            context_compacted_at=source.context_compacted_at,
         )
         for message in await self.messages(session_id):
             await self.add_message(
@@ -612,6 +652,74 @@ class TraceRepository:
                 ),
             )
             await connection.commit()
+
+    async def usage_overview(
+        self,
+        *,
+        session_id: str,
+        workspace: Path | str,
+        day_start: datetime,
+        month_start: datetime,
+    ) -> UsageOverview:
+        sql = """
+        WITH scoped AS (
+            SELECT u.*, r.session_id, s.workspace
+            FROM usage_records AS u
+            JOIN runs AS r ON r.run_id = u.run_id
+            JOIN sessions AS s ON s.id = r.session_id
+        ), totals AS (
+            SELECT 'session' AS period, * FROM scoped WHERE session_id = ?
+            UNION ALL
+            SELECT 'today' AS period, * FROM scoped
+                WHERE workspace = ? AND created_at >= ?
+            UNION ALL
+            SELECT 'month' AS period, * FROM scoped
+                WHERE workspace = ? AND created_at >= ?
+        )
+        SELECT
+            period,
+            COUNT(*) AS run_count,
+            COALESCE(SUM(input_tokens), 0) AS input_tokens,
+            COALESCE(SUM(output_tokens), 0) AS output_tokens,
+            COALESCE(SUM(total_tokens), 0) AS total_tokens,
+            COALESCE(SUM(CASE WHEN estimated = 1 THEN total_tokens ELSE 0 END), 0)
+                AS estimated_tokens,
+            COALESCE(SUM(CASE WHEN estimated = 1 THEN 1 ELSE 0 END), 0)
+                AS estimated_runs,
+            COALESCE(SUM(CASE WHEN cost IS NOT NULL THEN cost ELSE 0 END), 0.0)
+                AS known_cost,
+            COALESCE(SUM(CASE WHEN cost IS NULL THEN 1 ELSE 0 END), 0)
+                AS unknown_cost_runs,
+            COALESCE(SUM(duration), 0.0) AS duration
+        FROM totals
+        GROUP BY period
+        """
+        workspace_value = _workspace_value(workspace)
+        async with self.database.connect() as connection:
+            rows = await (
+                await connection.execute(
+                    sql,
+                    (
+                        session_id,
+                        workspace_value,
+                        day_start.astimezone(UTC).isoformat(),
+                        workspace_value,
+                        month_start.astimezone(UTC).isoformat(),
+                    ),
+                )
+            ).fetchall()
+        periods = {
+            str(row["period"]): UsageTotals.model_validate(
+                {key: value for key, value in dict(row).items() if key != "period"}
+            )
+            for row in rows
+        }
+        return UsageOverview(
+            session=periods.get("session", UsageTotals()),
+            today=periods.get("today", UsageTotals()),
+            month=periods.get("month", UsageTotals()),
+            generated_at=datetime.now(UTC),
+        )
 
     async def record_context(
         self,

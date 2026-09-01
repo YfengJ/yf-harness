@@ -48,8 +48,13 @@ from yfharness.core.policies import AgentMode, ApprovalPolicy
 from yfharness.core.review import ChangeReviewItem, WorkspaceReview
 from yfharness.core.skills import SkillCatalog, SkillSummary
 from yfharness.storage.database import Database
-from yfharness.storage.models import SessionRecord
-from yfharness.storage.repositories import FileChangeRepository, RunRepository, SessionRepository
+from yfharness.storage.models import SessionRecord, UsageTotals
+from yfharness.storage.repositories import (
+    FileChangeRepository,
+    RunRepository,
+    SessionRepository,
+    TraceRepository,
+)
 from yfharness.tools.registry import builtin_tools
 from yfharness.tools.security import WorkspaceGuard
 
@@ -146,6 +151,7 @@ class DesktopController(QObject):
     attachmentsChanged = Signal()
     planChanged = Signal()
     contextChanged = Signal()
+    usageChanged = Signal()
     goalChanged = Signal()
     workspaceChanged = Signal()
     errorOccurred = Signal(str)
@@ -180,6 +186,10 @@ class DesktopController(QObject):
         self.skills = DictListModel(
             ["skillId", "name", "description", "source", "path", "warning"], self
         )
+        self.usage = DictListModel(
+            ["label", "tokens", "runs", "estimated", "cost", "budget", "ratio"],
+            self,
+        )
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="yfh-desktop")
         self._busy = False
         self._status = "准备就绪"
@@ -208,6 +218,7 @@ class DesktopController(QObject):
         self._context_ratio = 0.0
         self._context_source_count = 0
         self._context_compacted = False
+        self._context_compaction_status = "none"
         self._current_goal = ""
         self._goal_status = "inactive"
         self._base_context_items: list[dict[str, object]] = []
@@ -243,6 +254,10 @@ class DesktopController(QObject):
     @Property(QObject, constant=True)
     def skillModel(self) -> QObject:
         return self.skills
+
+    @Property(QObject, constant=True)
+    def usageModel(self) -> QObject:
+        return self.usage
 
     @Property(int, notify=attachmentsChanged)
     def attachmentCount(self) -> int:
@@ -291,6 +306,10 @@ class DesktopController(QObject):
     @Property(bool, notify=contextChanged)
     def contextCompacted(self) -> bool:
         return self._context_compacted
+
+    @Property(str, notify=contextChanged)
+    def contextCompactionStatus(self) -> str:
+        return self._context_compaction_status
 
     @Property(str, notify=goalChanged)
     def currentGoal(self) -> str:
@@ -476,6 +495,7 @@ class DesktopController(QObject):
         self.planChanged.emit()
         self.currentSessionChanged.emit()
         self._set_status("等待任务")
+        self._submit("usage", lambda: self._load_usage(""))
 
     @Slot(str)
     def openSession(self, session_id: str) -> None:
@@ -582,6 +602,23 @@ class DesktopController(QObject):
         self._set_goal_state("", "inactive")
         self._persist_goal_if_needed()
         self._set_status("目标已清除")
+
+    @Slot()
+    def compactContext(self) -> None:
+        if self._busy:
+            self.errorOccurred.emit("请先等待当前任务结束或取消运行")
+            return
+        if not self._current_session_id:
+            self.errorOccurred.emit("请先运行或打开一个会话")
+            return
+        self._set_busy(True)
+        self._set_status("正在生成结构化上下文摘要")
+        session_id = self._current_session_id
+        self._submit("compact_context", lambda: self._compact_context(session_id))
+
+    @Slot()
+    def refreshUsage(self) -> None:
+        self._submit("usage", lambda: self._load_usage(self._current_session_id))
 
     def _start_message(
         self,
@@ -811,6 +848,44 @@ class DesktopController(QObject):
         self._context_compacted = False
         self._context_summary = "1,284/27,904 tokens"
         self.contextChanged.emit()
+        self.usage.replace(
+            [
+                _usage_item(
+                    "当前会话",
+                    UsageTotals(
+                        run_count=3,
+                        total_tokens=18_420,
+                        unknown_cost_runs=3,
+                    ),
+                    None,
+                    None,
+                ),
+                _usage_item(
+                    "今日",
+                    UsageTotals(
+                        run_count=8,
+                        total_tokens=62_800,
+                        estimated_tokens=9_200,
+                        known_cost=0.184,
+                        unknown_cost_runs=2,
+                    ),
+                    100_000,
+                    2.5,
+                ),
+                _usage_item(
+                    "本月",
+                    UsageTotals(
+                        run_count=42,
+                        total_tokens=482_300,
+                        known_cost=1.72,
+                        unknown_cost_runs=7,
+                    ),
+                    2_000_000,
+                    50.0,
+                ),
+            ]
+        )
+        self.usageChanged.emit()
         self.changes.replace(
             [
                 {
@@ -855,6 +930,7 @@ class DesktopController(QObject):
         sessions = await SessionRepository(database).list(workspace=self._config.workspace)
         builder = ContextBuilder(self._config.workspace, lambda text: max(1, len(text) // 4))
         instructions = builder.instruction_documents()
+        usage = await self._usage_items(self._current_session_id, database)
         return {
             "sessions": [_session_item(item) for item in sessions],
             "instructions": [
@@ -867,6 +943,7 @@ class DesktopController(QObject):
                 }
                 for item in instructions
             ],
+            "usage": usage,
         }
 
     async def _load_sessions(self, query: str | None) -> dict[str, object]:
@@ -902,6 +979,59 @@ class DesktopController(QObject):
                 if message.role is not MessageRole.SYSTEM
             ],
             "changes": [_change_item(item) for item in changes],
+            "usage": await self._usage_items(session_id, database),
+        }
+
+    async def _load_usage(self, session_id: str) -> dict[str, object]:
+        database = Database(database_file())
+        await database.initialize()
+        return {
+            "usage": await self._usage_items(session_id, database),
+            "session_id": session_id,
+        }
+
+    async def _usage_items(self, session_id: str, database: Database) -> list[dict[str, object]]:
+        now = datetime.now().astimezone()
+        overview = await TraceRepository(database).usage_overview(
+            session_id=session_id,
+            workspace=self._config.workspace,
+            day_start=now.replace(hour=0, minute=0, second=0, microsecond=0),
+            month_start=now.replace(day=1, hour=0, minute=0, second=0, microsecond=0),
+        )
+        settings = self._config.usage
+        return [
+            _usage_item("当前会话", overview.session, None, None),
+            _usage_item(
+                "今日",
+                overview.today,
+                settings.daily_token_budget,
+                settings.daily_cost_budget,
+            ),
+            _usage_item(
+                "本月",
+                overview.month,
+                settings.monthly_token_budget,
+                settings.monthly_cost_budget,
+            ),
+        ]
+
+    async def _compact_context(self, session_id: str) -> dict[str, object]:
+        database = Database(database_file())
+        await database.initialize()
+        repository = SessionRepository(database)
+        session = await repository.get(session_id)
+        if session is None:
+            raise KeyError(f"会话不存在：{session_id}")
+        messages = await repository.messages(session_id)
+        if not messages:
+            raise ValueError("当前会话没有可压缩的消息")
+        builder = ContextBuilder(self._config.workspace, lambda text: max(1, len(text) // 4))
+        builder.previous_summary = session.context_summary
+        summary = builder.manual_compact(messages)
+        await repository.update_context_summary(session_id, summary)
+        return {
+            "summary_length": len(summary.to_markdown()),
+            "compaction_status": "manual",
         }
 
     async def _load_changes(self, session_id: str) -> dict[str, object]:
@@ -1069,6 +1199,9 @@ class DesktopController(QObject):
                 self._set_busy(False)
                 self._set_status("运行中断")
                 self._queue_paused = True
+            elif kind == "compact_context":
+                self._set_busy(False)
+                self._set_status("上下文压缩失败")
             self.errorOccurred.emit(message)
             self._clear_runner()
             return
@@ -1085,12 +1218,17 @@ class DesktopController(QObject):
                 if self._context_budget == 0:
                     self._context_source_count = len(self._base_context_items)
                     self.contextChanged.emit()
+            usage = payload.get("usage")
+            if isinstance(usage, list):
+                self.usage.replace(usage)
+                self.usageChanged.emit()
             if not self._busy:
                 self._set_status("准备就绪")
         elif kind == "open_session":
             session = payload.get("session")
             messages = payload.get("messages")
             changes = payload.get("changes")
+            usage = payload.get("usage")
             if isinstance(session, dict) and isinstance(messages, list):
                 self._current_session_id = str(session["sessionId"])
                 self._current_session_title = str(session["title"])
@@ -1103,7 +1241,15 @@ class DesktopController(QObject):
                 self.messages.replace(messages)
                 if isinstance(changes, list):
                     self.changes.replace(changes)
+                if isinstance(usage, list):
+                    self.usage.replace(usage)
+                    self.usageChanged.emit()
                 self._reset_runtime_context()
+                if bool(session.get("contextCompacted")):
+                    self._context_compacted = True
+                    self._context_compaction_status = "stored"
+                    self._context_summary = "已有会话摘要 · 下次运行将直接复用"
+                    self.contextChanged.emit()
                 self.currentSessionChanged.emit()
                 self._set_status("会话已载入")
         elif kind == "run":
@@ -1142,6 +1288,7 @@ class DesktopController(QObject):
                 )
                 self._context_source_count = len(sources) if isinstance(sources, list) else 0
                 self._context_compacted = bool(context.get("compacted"))
+                self._context_compaction_status = str(context.get("compaction_status", "none"))
                 compacted = " · 已压缩" if context.get("compacted") else ""
                 self._context_summary = (
                     f"{self._context_tokens:,}/{self._context_budget:,} tokens{compacted}"
@@ -1151,7 +1298,23 @@ class DesktopController(QObject):
             self._submit("sessions", lambda: self._load_sessions(None))
             if self._current_session_id:
                 self._submit("changes", lambda: self._load_changes(self._current_session_id))
+                self._submit("usage", lambda: self._load_usage(self._current_session_id))
             self._start_next_queued()
+        elif kind == "usage":
+            usage = payload.get("usage")
+            if (
+                isinstance(usage, list)
+                and str(payload.get("session_id", "")) == self._current_session_id
+            ):
+                self.usage.replace(usage)
+                self.usageChanged.emit()
+        elif kind == "compact_context":
+            self._set_busy(False)
+            self._context_compacted = True
+            self._context_compaction_status = "manual"
+            self._context_summary = "已生成会话摘要 · 下次运行将直接复用"
+            self.contextChanged.emit()
+            self._set_status("上下文压缩完成")
         elif kind == "changes":
             changes = payload.get("changes", [])
             if isinstance(changes, list):
@@ -1176,6 +1339,11 @@ class DesktopController(QObject):
                 self.messages.replace(messages)
                 self.changes.replace([])
                 self._reset_runtime_context()
+                if bool(session.get("contextCompacted")):
+                    self._context_compacted = True
+                    self._context_compaction_status = "stored"
+                    self._context_summary = "分支已继承上下文摘要"
+                    self.contextChanged.emit()
                 self.currentSessionChanged.emit()
                 self._set_status("已创建会话分支")
                 self._submit("sessions", lambda: self._load_sessions(None))
@@ -1209,6 +1377,7 @@ class DesktopController(QObject):
         self._context_ratio = 0.0
         self._context_source_count = len(self._base_context_items)
         self._context_compacted = False
+        self._context_compaction_status = "none"
         self.contextChanged.emit()
 
     def _refresh_attachments(self) -> None:
@@ -1298,6 +1467,10 @@ def _session_item(session: SessionRecord) -> dict[str, object]:
         "updated": _relative_time(session.updated_at),
         "goal": session.goal or "",
         "goalStatus": session.goal_status,
+        "contextCompacted": session.context_summary is not None,
+        "contextCompactedAt": session.context_compacted_at.isoformat()
+        if session.context_compacted_at is not None
+        else "",
         "provider": session.provider,
         "model": session.model,
     }
@@ -1323,6 +1496,35 @@ def _context_item(item: dict[str, object]) -> dict[str, object]:
         "path": str(item.get("path") or "运行时上下文"),
         "scope": str(item.get("scope") or item.get("kind", "runtime")),
         "tokens": _safe_int(item.get("estimated_tokens")),
+    }
+
+
+def _usage_item(
+    label: str,
+    totals: UsageTotals,
+    token_budget: int | None,
+    cost_budget: float | None,
+) -> dict[str, object]:
+    ratios = [
+        totals.total_tokens / token_budget if token_budget else 0.0,
+        totals.known_cost / cost_budget if cost_budget else 0.0,
+    ]
+    budget_parts = []
+    if token_budget is not None:
+        budget_parts.append(f"{token_budget:,} tokens")
+    if cost_budget is not None:
+        budget_parts.append(f"${cost_budget:.2f}")
+    cost = f"${totals.known_cost:.4f} 已知"
+    if totals.unknown_cost_runs:
+        cost += f" · {totals.unknown_cost_runs} 次成本未知"
+    return {
+        "label": label,
+        "tokens": totals.total_tokens,
+        "runs": totals.run_count,
+        "estimated": totals.estimated_tokens,
+        "cost": cost,
+        "budget": " / ".join(budget_parts) if budget_parts else "未设置本地额度",
+        "ratio": min(max(ratios), 1.0),
     }
 
 

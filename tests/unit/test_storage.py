@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from yfharness.core.compaction import CompactionSummary
 from yfharness.core.models import Message, MessageRole, RunStatus
 from yfharness.storage.database import Database
 from yfharness.storage.migrations import MIGRATIONS, SCHEMA_VERSION
@@ -63,7 +64,8 @@ async def test_schema_v3_upgrades_existing_sessions_with_inactive_goal(tmp_path:
     assert session is not None
     assert session.goal is None
     assert session.goal_status == "inactive"
-    assert await database.schema_version() == 4
+    assert session.context_summary is None
+    assert await database.schema_version() == 5
 
 
 @pytest.mark.asyncio
@@ -154,6 +156,11 @@ async def test_session_fork_copies_history_without_reusing_message_ids(tmp_path:
         goal_status="active",
     )
     await repository.add_message(source.id, Message.text(MessageRole.USER, "explore option A"))
+    summary = CompactionSummary(
+        current_goal="Deliver a reviewed plan",
+        user_constraints=["必须保留审计历史"],
+    )
+    assert await repository.update_context_summary(source.id, summary)
 
     forked = await repository.fork(source.id)
 
@@ -163,6 +170,8 @@ async def test_session_fork_copies_history_without_reusing_message_ids(tmp_path:
     assert forked.title == "Original · 分支"
     assert forked.goal == source.goal
     assert forked.goal_status == "active"
+    assert forked.context_summary == summary
+    assert forked.context_compacted_at is not None
     assert forked_messages[0].text_content == "explore option A"
     assert forked_messages[0].id != source_messages[0].id
 

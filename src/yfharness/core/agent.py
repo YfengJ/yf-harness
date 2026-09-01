@@ -372,18 +372,28 @@ class AgentRunner:
     def _add_usage(self, total: Usage, current: Usage, cost: float) -> tuple[Usage, float]:
         request_cost = current.cost
         if request_cost is None:
-            request_cost = (
-                current.input_tokens * (self.model.input_price or 0)
-                + current.output_tokens * (self.model.output_price or 0)
-            ) / 1_000_000
+            if self.model.input_price is None and self.model.output_price is None:
+                if self.limits.max_cost is not None:
+                    raise AgentLimitError("模型未配置价格，无法执行成本预算")
+            else:
+                request_cost = (
+                    current.input_tokens * (self.model.input_price or 0)
+                    + current.output_tokens * (self.model.output_price or 0)
+                ) / 1_000_000
+        previous_cost_known = total.total_tokens == 0 or total.cost is not None
+        aggregate_cost = (
+            (total.cost or 0) + request_cost
+            if request_cost is not None and previous_cost_known
+            else None
+        )
         updated = Usage(
             input_tokens=total.input_tokens + current.input_tokens,
             output_tokens=total.output_tokens + current.output_tokens,
             total_tokens=total.total_tokens + current.total_tokens,
             estimated=total.estimated or current.estimated,
-            cost=(total.cost or 0) + request_cost,
+            cost=aggregate_cost,
         )
-        return updated, cost + request_cost
+        return updated, cost + (request_cost or 0)
 
     def _check_budget(self, usage: Usage, cost: float) -> None:
         if (

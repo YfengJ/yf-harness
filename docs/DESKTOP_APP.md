@@ -1,6 +1,6 @@
 # 桌面应用
 
-YF-Harness 0.9 将 Qt Quick 桌面窗口作为主要交互入口。它不是网页壳，也不需要先打开终端窗口；
+YF-Harness 0.10 将 Qt Quick 桌面窗口作为主要交互入口。它不是网页壳，也不需要先打开终端窗口；
 打包后的 `YF-Harness.app` 包含 Python、Qt 与项目运行时，可以从 Finder 双击启动。
 
 ## 直接运行源码
@@ -26,7 +26,7 @@ workspace 和安全策略继续读取同一套 YF-Harness 配置。
 ```
 
 脚本会锁定并安装 `desktop-build` extra，使用 Qt 官方 `pyside6-deploy` / Nuitka 生成
-`dist/YF-Harness.app`，写入应用名、`local.yfharness.desktop` Bundle Identifier 和 0.9.0 版本，
+`dist/YF-Harness.app`，写入应用名、`local.yfharness.desktop` Bundle Identifier 和 0.10.0 版本，
 再执行 ad-hoc 签名、Plist 校验与 LaunchServices 启动 smoke。
 
 0.9 构建继续显式排除未使用的 WebEngine、Quick3D、Charts、Sensors 与 Test 顶层二进制，
@@ -80,6 +80,13 @@ Developer ID Application 证书重新签名，并提交 Apple notarization。项
 - **命令中心：** `⌘/Ctrl+K` 集中提供新任务、Plan、Goal、变更审查、上下文、项目技能与切换项目。
 - **覆盖式检查器：** 运行、上下文与变更抽屉贴合窗口右侧打开，不改变主消息和 Composer 宽度。
 - **布局证据：** 截图入口支持 `--width`、`--height`、`--stress-preview` 与 `--layout-report`，回归测试验证 1040×720、1280×800、1480×824。
+
+## 0.10 长会话与本地额度
+
+- **持久摘要：** 自动或手动生成的八字段摘要随当前会话保存，重新打开或重启 App 后继续复用；原始消息不删除，分支会复制摘要。
+- **手动控制：** “上下文”页可立即压缩或重新压缩，并标明摘要是已保存、本次创建还是跨运行复用。
+- **用量账本：** “运行”页按会话、今日、本月展示 Token、运行数、估算 Token 和成本；“未知成本”不会按零成本冒充精确值。
+- **本地额度：** `[usage]` 可配置日/月 Token 或成本额度。它们只用于进度条，不读取 Provider 账户余额，也不替代 `[agent]` 的单次运行限制。
 
 ## 无头验证
 

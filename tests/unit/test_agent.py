@@ -65,6 +65,32 @@ async def test_final_answer_transitions_and_usage(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_unpriced_model_keeps_cost_unknown_and_rejects_cost_limit(tmp_path: Path) -> None:
+    model = configured_model().model_copy(update={"input_price": None, "output_price": None})
+    runner = AgentRunner(
+        provider=MockProvider(response="final"),
+        model=model,
+        tools=executor(tmp_path),
+    )
+
+    result = await runner.run("hello", session_id="s1")
+
+    assert result.run.status is RunStatus.COMPLETED
+    assert result.run.usage.cost is None
+
+    limited = AgentRunner(
+        provider=MockProvider(response="final"),
+        model=model,
+        tools=executor(tmp_path),
+        limits=AgentLimits(max_cost=1.0),
+    )
+    failed = await limited.run("hello", session_id="s2")
+
+    assert failed.run.status is RunStatus.FAILED
+    assert "无法执行成本预算" in (failed.run.error or "")
+
+
+@pytest.mark.asyncio
 async def test_native_tool_round_trip_reads_real_file(tmp_path: Path) -> None:
     (tmp_path / "note.txt").write_text("real content", encoding="utf-8")
     provider = MockProvider(

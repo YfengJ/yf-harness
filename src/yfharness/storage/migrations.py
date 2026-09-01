@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 MIGRATIONS: dict[int, str] = {
     1: """
@@ -134,5 +134,12 @@ ALTER TABLE sessions ADD COLUMN goal TEXT;
 ALTER TABLE sessions ADD COLUMN goal_status TEXT NOT NULL DEFAULT 'inactive'
     CHECK (goal_status IN ('inactive', 'active', 'completed'));
 ALTER TABLE sessions ADD COLUMN goal_updated_at TEXT;
+""",
+    5: """
+ALTER TABLE sessions ADD COLUMN context_summary_json TEXT;
+ALTER TABLE sessions ADD COLUMN context_compacted_at TEXT;
+CREATE INDEX idx_usage_created ON usage_records(created_at DESC);
+CREATE INDEX idx_usage_provider_model_created
+    ON usage_records(provider, model, created_at DESC);
 """,
 }

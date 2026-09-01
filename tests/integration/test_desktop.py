@@ -92,6 +92,15 @@ def test_desktop_controller_runs_and_persists_mock_task(
         _item(controller.instructions, row)["source"] == "goal"
         for row in range(controller.instructions.rowCount())
     )
+    _wait_until(lambda: controller.usage.rowCount() == 3)
+    assert _item(controller.usage, 0)["tokens"] > 0
+    assert _item(controller.usage, 1)["label"] == "今日"
+    assert "Provider 账户余额" not in str(_item(controller.usage, 1)["budget"])
+
+    controller.compactContext()
+    _wait_until(lambda: controller.contextCompactionStatus == "manual")
+    assert controller.contextCompacted
+    assert "下次运行" in controller.contextSummary
 
     session_id = controller.currentSessionId
     controller.newSession()
@@ -99,6 +108,8 @@ def test_desktop_controller_runs_and_persists_mock_task(
     controller.openSession(session_id)
     _wait_until(lambda: controller.currentSessionId == session_id)
     assert controller.currentGoal == "Ship a focused desktop workflow"
+    assert controller.contextCompactionStatus == "stored"
+    assert controller.contextCompacted
     controller.completeGoal()
     _wait_until(lambda: controller.goalStatus == "completed")
     controller.clearGoal()

@@ -40,6 +40,13 @@ class AgentSettings(DomainModel):
     max_cost: float | None = Field(default=None, ge=0)
 
 
+class UsageSettings(DomainModel):
+    daily_token_budget: int | None = Field(default=None, gt=0)
+    monthly_token_budget: int | None = Field(default=None, gt=0)
+    daily_cost_budget: float | None = Field(default=None, gt=0)
+    monthly_cost_budget: float | None = Field(default=None, gt=0)
+
+
 class MCPServerSettings(DomainModel):
     command: list[str] = Field(min_length=1)
     enabled: bool = False
@@ -112,6 +119,7 @@ class AppConfig(DomainModel):
         }
     )
     agent: AgentSettings = Field(default_factory=AgentSettings)
+    usage: UsageSettings = Field(default_factory=UsageSettings)
     default_workflow: str = "balanced"
     workflows: dict[str, WorkflowProfile] = Field(default_factory=_default_workflows)
     mcp_servers: dict[str, MCPServerSettings] = Field(default_factory=dict)

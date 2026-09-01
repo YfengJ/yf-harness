@@ -37,12 +37,40 @@ def test_cli_persists_lists_and_exports_session(tmp_path: Path) -> None:
     assert exported.exit_code == 0, exported.output
     payload = json.loads(exported.output)
     assert [message["role"] for message in payload["messages"]] == ["user", "assistant"]
+    assert payload["messages"][0]["content"][0]["text"] == "persist me"
+    assert "附加文件上下文" not in payload["messages"][0]["content"][0]["text"]
 
     replayed = runner.invoke(app, ["replay", run_id], env=env)
     assert replayed.exit_code == 0, replayed.output
     replay_payload = json.loads(replayed.output)
     assert replay_payload["mode"] == "read_only_replay"
     assert replay_payload["run"]["run_id"] == run_id
+
+    usage = runner.invoke(app, ["usage", "--session", session_id, "--output", "json"], env=env)
+    assert usage.exit_code == 0, usage.output
+    usage_payload = json.loads(usage.output)
+    assert usage_payload["source"] == "local_usage_records"
+    assert usage_payload["provider_balance"] == "unavailable"
+    assert usage_payload["overview"]["session"]["run_count"] == 1
+    assert usage_payload["overview"]["session"]["unknown_cost_runs"] == 1
+
+    usage_text = runner.invoke(app, ["usage", "--session", session_id], env=env)
+    assert usage_text.exit_code == 0, usage_text.output
+    assert "1 次成本未知" in usage_text.output
+
+    compacted = runner.invoke(app, ["sessions", "compact", session_id], env=env)
+    assert compacted.exit_code == 0, compacted.output
+    assert "已压缩会话" in compacted.output
+
+    continued = runner.invoke(
+        app,
+        ["run", "--session", session_id, "--output", "json", "continue after compaction"],
+        env=env,
+    )
+    assert continued.exit_code == 0, continued.output
+    continued_payload = json.loads(continued.output)
+    assert continued_payload["context"]["compaction_status"] == "reused"
+    assert continued_payload["context"]["compacted"] is True
 
     deleted = runner.invoke(app, ["sessions", "delete", session_id, "--yes"], env=env)
     assert deleted.exit_code == 0, deleted.output

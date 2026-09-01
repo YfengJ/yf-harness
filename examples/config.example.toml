@@ -1,5 +1,6 @@
 default_provider = "deepseek"
 default_model = "deepseek_chat"
+default_workflow = "balanced"
 
 [providers.deepseek]
 type = "openai_compatible"
@@ -27,7 +28,12 @@ api_key_env = ""
 
 # Pricing and context limits are user configuration, never permanent program facts.
 
-default_workflow = "balanced"
+# 可选的本地统计额度，只影响桌面/CLI 进度展示，不是 Provider 余额，也不是单次运行硬限制。
+[usage]
+daily_token_budget = 100000
+monthly_token_budget = 2000000
+daily_cost_budget = 2.5
+monthly_cost_budget = 50.0
 
 [workflows.review_only]
 version = 1

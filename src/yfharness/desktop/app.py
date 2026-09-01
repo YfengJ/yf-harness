@@ -23,7 +23,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--smoke-test", action="store_true")
     parser.add_argument("--screenshot")
-    parser.add_argument("--preview-tab", type=int, choices=range(3), default=0)
+    parser.add_argument("--preview-tab", type=int, choices=range(3))
     parser.add_argument("--width", type=int)
     parser.add_argument("--height", type=int)
     parser.add_argument("--stress-preview", action="store_true")
@@ -58,8 +58,9 @@ def main() -> None:
     if args.height:
         window.setProperty("height", max(720, args.height))
     if args.screenshot:
-        window.setProperty("inspectorTab", args.preview_tab)
-        window.setProperty("inspectorOpen", args.preview_tab > 0)
+        if args.preview_tab is not None:
+            window.setProperty("inspectorTab", args.preview_tab)
+            window.setProperty("inspectorOpen", True)
         window.setProperty("commandPreviewRequested", args.preview_command)
     application.aboutToQuit.connect(controller.shutdown)
 

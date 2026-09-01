@@ -33,6 +33,8 @@ LlamaIndex 和 AutoGen 通过可选、惰性加载的适配层接入，既保留
 - 整次 Agent 运行可原子式回退；任一文件存在后续编辑时，整组撤销不会部分生效。
 - Textual 三栏 TUI：流式 Markdown、会话、工具折叠、审批、设置、诊断和响应式布局。
 - 项目指令、手动/自动文件上下文、Token 预算与八字段结构化压缩。
+- 会话压缩摘要跨运行恢复；桌面或 `yfh sessions compact` 可显式更新，原始消息始终保留。
+- 当前会话、今日、本月的本地 Token/成本账本与可选额度；估算值和未知成本明确标记。
 - 轮转文本/JSONL 日志、Trace、只读 Replay 和 20 类离线 Eval。
 - LangChain、LlamaIndex、AutoGen 真实 Agent API 集成；支持离线 Mock 和现有 OpenAI-compatible 配置。
 - MCP stdio 工具使用名称隔离、环境白名单和现有审批链；项目插件只静态发现。
@@ -130,6 +132,15 @@ Composer 底栏可以直接切换 Agent/Plan、选择当前 Provider 的模型�
 上下文、项目技能和工作区切换。1040px 起的窗口会自动收缩长标题与 Goal，检查器以覆盖式抽屉打开，
 不会再挤压消息和输入区域。
 
+控制台“运行”页和命令中心“用量与额度”展示本机保存的会话、今日和本月 Token/成本统计；它不是
+Provider 账户余额。上下文页可点击“立即压缩当前会话”，生成的结构化摘要会随会话保存并在后续运行复用。
+CLI 可执行：
+
+```bash
+yfh usage --output json
+yfh sessions compact <session-id>
+```
+
 ## 项目技能与 `$` 命令面板
 
 桌面输入框键入 `$` 会打开技能面板，支持键盘上下选择、Enter/Tab 插入，也可鼠标点击。当前兼容：
@@ -165,6 +176,12 @@ model = "由用户填写的模型名称"
 supports_streaming = true
 supports_native_tools = true
 context_window = 64000
+
+[usage]
+daily_token_budget = 100000
+monthly_token_budget = 2000000
+daily_cost_budget = 2.5
+monthly_cost_budget = 50.0
 ```
 
 ```bash

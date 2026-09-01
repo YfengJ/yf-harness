@@ -1,10 +1,20 @@
 from __future__ import annotations
 
+import tomllib
 from pathlib import Path
 
 import pytest
 
 from yfharness.config.loader import ConfigError, load_config
+
+
+def test_example_config_keeps_root_keys_at_document_scope() -> None:
+    path = Path(__file__).parents[2] / "examples" / "config.example.toml"
+
+    payload = tomllib.loads(path.read_text(encoding="utf-8"))
+
+    assert payload["default_workflow"] == "balanced"
+    assert "default_workflow" not in payload["usage"]
 
 
 def test_config_precedence_and_environment_expansion(tmp_path: Path) -> None:
@@ -119,6 +129,37 @@ action = "observe"
 
     project.write_text('default_workflow = "missing"\n', encoding="utf-8")
     with pytest.raises(ConfigError, match="default_workflow"):
+        load_config(
+            workspace=tmp_path,
+            project_path=project,
+            user_path=tmp_path / "none",
+        )
+
+
+def test_local_usage_budgets_are_optional_and_validated(tmp_path: Path) -> None:
+    project = tmp_path / "config.toml"
+    project.write_text(
+        """
+[usage]
+daily_token_budget = 100000
+monthly_token_budget = 2000000
+daily_cost_budget = 2.5
+monthly_cost_budget = 50.0
+""",
+        encoding="utf-8",
+    )
+
+    config = load_config(
+        workspace=tmp_path,
+        project_path=project,
+        user_path=tmp_path / "none",
+    )
+
+    assert config.usage.daily_token_budget == 100_000
+    assert config.usage.monthly_cost_budget == 50.0
+
+    project.write_text("[usage]\ndaily_token_budget = 0\n", encoding="utf-8")
+    with pytest.raises(ConfigError, match="daily_token_budget"):
         load_config(
             workspace=tmp_path,
             project_path=project,

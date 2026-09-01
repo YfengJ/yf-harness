@@ -4,14 +4,23 @@ import json
 import os
 import subprocess
 import sys
+from importlib.metadata import version
 from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
 
+from yfharness import __version__
 from yfharness.cli import app
 
 runner = CliRunner()
+
+
+def test_runtime_version_matches_installed_metadata() -> None:
+    result = runner.invoke(app, ["--version"])
+
+    assert result.exit_code == 0, result.output
+    assert result.output.strip() == __version__ == version("yf-harness")
 
 
 def test_run_mock_streams_text() -> None:

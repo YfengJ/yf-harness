@@ -1,5 +1,23 @@
 # 发现与决策
 
+## 阶段 18：0.10 性能、上下文与额度纵深（2026-09-01）
+- 起点仓库干净，`main` 与私密远端均在 `7618270`；无差异时 Change Radar 为 P3/0，但上下文/存储/配置/桌面联动按 P1 管理。
+- `usage_records` 已保存 provider/model/input/output/total/estimated/cost/duration/created_at，且 runs 关联 session；缺口不是采集，而是 Repository 没有聚合查询，桌面和 CLI 都无法展示会话、今日、本月累计或估算占比。
+- “额度统计”应定义为本地账本：精确/估算 Token、已知成本、运行次数、耗时和可选本地预算；除非 Provider 提供专门余额 API，否则不得把本地预算剩余称为供应商账户余额。
+- `ContextBuilder.previous_summary` 当前只在 Python 对象内存中；自动与手动压缩虽然能减少下一次请求消息，但跨进程/重建 Builder 是否丢失尚需沿桌面与 CLI 创建路径验证。
+- `ContextBuilder._estimate()` 每次都重新把全部工具定义 `model_dump + json.dumps`；自动压缩超预算时的 recent-message 裁剪循环会反复支付同一工具 schema 成本，可把工具估算缓存为当前 build/fit 的局部值并用消息增量估算验证收益。
+- 真实缺陷已确认：CLI/桌面每次 `_run_once()` 都新建 `ContextBuilder`，而 `previous_summary` 只存在对象内；同一会话下一次运行不会复用摘要，会对完整历史重复压缩。0.10 将摘要 JSON 前向迁移到 session，保留原始消息，分支复制摘要，运行后只在摘要变化时更新。
+- 热路径基线（16 个中等工具 schema、49 条长消息、22k 请求预算）：单次 `fit_messages` 10.06 ms、39 次 estimator 调用，100 次 974.32 ms（平均 9.74 ms），最终从 49 条裁到 21 条。0.10 的最低验收是 estimator 调用不随逐条裁剪线性增加，并以同参数前后复测给出证据。
+- 上下文状态契约采用 `none/reused/created/manual`：`compacted` 继续兼容旧 UI，另行暴露摘要是本次创建还是跨运行复用；重复摘要必须把上一版结构化字段当一等输入，不能因旧摘要以 system role 注入而丢失约束。
+- 额度统计契约采用本地账本而非供应商账户余额：会话累计、工作区今日、本月各展示运行数、总 Token、其中估算 Token、已知成本、未知成本运行数和耗时；可选本地日/月 Token 与成本预算仅用于进度显示，不改变现有每次运行硬限制。
+- 第一轮 review 发现旧 `_add_usage` 在模型未配置价格时把成本归零，额度 UI 会把“未知”误报为“免费”；已改为聚合成本保持 `None`，配置成本硬限制但缺少价格时明确失败，CLI/TUI/桌面分别显示未知成本。
+- 第一轮 review 还发现 `_run_once` 会把带自动文件上下文的扩展 user message 写回原始历史，导致会话和后续摘要持续膨胀；现改为只持久化原始 prompt 与显式图片 part，模型扩展上下文不进入 `messages`。真实 smoke 的单轮手动摘要由 10,858 字符降至 131 字符。
+- 示例配置原先在 TOML table 之后声明根级 `default_workflow`，实际会落入错误 table；0.10 将根键移到文档顶部并加入 `tomllib` 结构回归。
+- 第二轮 review 修复多步 Agent 在工具后重建上下文时把已有摘要状态重置为 `none`，并在最近窗口没有 user 消息时保留上一摘要的真实 goal/next step。
+- 发布门最终证据：170 passed、83.21% 覆盖率、Ruff/format、核心 68 文件和桌面 3 文件 mypy、20/20 Eval、0.10.0 sdist/wheel、隔离 wheel 版本/Mock/usage、236 MiB App、Plist 0.10.0、深度 codesign 和真实 Bundle 截图全部通过。
+- 最终 Change Radar 为 P1/50、无 blocking gaps；P1 来源是版本/lockfile、配置 schema 和可执行链路的预期变化，相关风险均有直接验证。目标 GitHub 仓库复核为 `PRIVATE`。
+- 现有结构化摘要由确定性规则提取目标、约束、决定、文件、测试与未解决项，优点是离线和可审计；风险是重复压缩时系统角色的旧摘要可能被首个 system message 过滤，需要增加多轮压缩与关键约束保留测试。
+
 ## 阶段 17：0.9 蓝图工作室桌面重构（2026-08-31）
 - 当前 2960×1648 Bundle 截图证实 Composer 把图片、原图开关、模式、长 Goal、模型、上下文、技能快捷键和发送压在同一固定行；长目标虽省略，但各控件仍争抢剩余宽度，快捷键文案与发送区已经失去稳定间距。
 - 输入框本体占据约 140px 高度，但只有一行低对比占位符；动作区比输入内容更抢眼，形成“空文本框 + 拥挤底栏”的反向层级。

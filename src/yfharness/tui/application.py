@@ -458,8 +458,9 @@ class YFHarnessApp(App[None]):
             self.query_one("#timeline", Static).update(f"{symbol} {event.result.summary}")
         elif isinstance(event, BudgetUpdated):
             marker = "估算" if event.usage.estimated else "精确"
+            cost = "未知" if event.usage.cost is None else f"{event.usage.cost:.6f}"
             self.query_one("#usage", Static).update(
-                f"Token: {event.usage.total_tokens} ({marker}) · Cost: {event.cost:.6f}"
+                f"Token: {event.usage.total_tokens} ({marker}) · Cost: {cost}"
             )
 
     async def _observe_hook(self, evaluation: HookEvaluation) -> None:

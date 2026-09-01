@@ -6,6 +6,7 @@ import json
 import re
 from collections.abc import Callable
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field
 
@@ -26,6 +27,7 @@ from yfharness.core.skills import SkillInvocation
 from yfharness.tools.security import WorkspaceGuard, truncate_output
 
 TokenEstimator = Callable[[str], int]
+type CompactionStatus = Literal["none", "reused", "created"]
 
 
 class ContextSource(DomainModel):
@@ -43,6 +45,9 @@ class ContextSnapshot(DomainModel):
     budget_tokens: int
     usage_ratio: float
     compacted: bool = False
+    compaction_status: CompactionStatus = "none"
+    original_message_count: int = 0
+    fitted_message_count: int = 0
     summary: CompactionSummary | None = None
 
     def trace_payload(self) -> dict[str, object]:
@@ -54,6 +59,9 @@ class ContextSnapshot(DomainModel):
             "budget_tokens": self.budget_tokens,
             "usage_ratio": self.usage_ratio,
             "compacted": self.compacted,
+            "compaction_status": self.compaction_status,
+            "original_message_count": self.original_message_count,
+            "fitted_message_count": self.fitted_message_count,
             "summary_present": self.summary is not None,
         }
 
@@ -96,7 +104,10 @@ class ContextBuilder:
         return self.attachments.pop(path, None) is not None
 
     def manual_compact(self, messages: list[Message]) -> CompactionSummary:
-        self.previous_summary = self.compactor.summarize(messages)
+        self.previous_summary = self.compactor.summarize(
+            messages,
+            previous=self.previous_summary,
+        )
         return self.previous_summary
 
     def build(
@@ -154,10 +165,12 @@ class ContextBuilder:
                 )
             )
         messages = list(history)
-        if self.previous_summary is not None:
+        previous_summary = self.previous_summary
+        reused_summary = previous_summary is not None
+        if previous_summary is not None:
             summary_message = Message.text(
                 MessageRole.SYSTEM if model.supports_system_message else MessageRole.USER,
-                self.previous_summary.to_markdown(),
+                previous_summary.to_markdown(),
             )
             messages = [summary_message, *messages[-self.recent_messages :]]
             sources.append(ContextSource(kind="summary", label="previous compaction"))
@@ -183,7 +196,13 @@ class ContextBuilder:
                 ContextSource(kind="tools", label=f"{len(tools)} definitions"),
             ]
         )
-        return self.fit_messages(messages, model=model, tools=tools, sources=sources)
+        return self.fit_messages(
+            messages,
+            model=model,
+            tools=tools,
+            sources=sources,
+            reused_summary=reused_summary,
+        )
 
     def fit_messages(
         self,
@@ -192,15 +211,23 @@ class ContextBuilder:
         model: ModelConfig,
         tools: list[ToolDefinition],
         sources: list[ContextSource] | None = None,
+        reused_summary: bool = False,
     ) -> ContextSnapshot:
         budget = max(1, (model.context_window or 32_000) - (model.max_output_tokens or 4_096))
-        estimated = self._estimate(messages, tools)
+        original_message_count = len(messages)
+        tool_tokens = self._estimate_tools(tools)
+        estimated = self._estimate_messages(messages) + tool_tokens
         compacted = False
+        summary_in_messages = reused_summary or any(
+            message.text_content.startswith("# 上下文压缩摘要") for message in messages
+        )
+        compaction_status: CompactionStatus = "reused" if summary_in_messages else "none"
         summary = self.previous_summary
         fitted = messages
         if estimated > int(budget * self.compaction_threshold):
             compacted = True
-            summary = self.compactor.summarize(messages)
+            compaction_status = "created"
+            summary = self.compactor.summarize(messages, previous=self.previous_summary)
             self.previous_summary = summary
             system_messages = [
                 message for message in messages if message.role is MessageRole.SYSTEM
@@ -214,15 +241,25 @@ class ContextBuilder:
                 Message.text(summary_role, summary.to_markdown()),
                 *recent,
             ]
-            estimated = self._estimate(fitted, tools)
-            while estimated > budget and len(recent) > 2:
-                recent.pop(0)
-                fitted = [
-                    *system_messages,
-                    Message.text(summary_role, summary.to_markdown()),
-                    *recent,
-                ]
-                estimated = self._estimate(fitted, tools)
+            estimated = self._estimate_messages(fitted) + tool_tokens
+            if estimated > budget and len(recent) > 2:
+                low, high = 2, len(recent) - 1
+                best: tuple[list[Message], int] | None = None
+                while low <= high:
+                    keep = (low + high) // 2
+                    candidate = [
+                        *system_messages,
+                        Message.text(summary_role, summary.to_markdown()),
+                        *recent[-keep:],
+                    ]
+                    candidate_tokens = self._estimate_messages(candidate) + tool_tokens
+                    if candidate_tokens <= budget:
+                        best = (candidate, candidate_tokens)
+                        low = keep + 1
+                    else:
+                        high = keep - 1
+                if best is not None:
+                    fitted, estimated = best
             if estimated > budget:
                 raise ContextOverflowError(
                     f"结构化压缩后仍需约 {estimated} Token，超过预算 {budget}"
@@ -243,7 +280,10 @@ class ContextBuilder:
             estimated_tokens=estimated,
             budget_tokens=budget,
             usage_ratio=min(estimated / budget, 1.0),
-            compacted=compacted,
+            compacted=compacted or summary_in_messages,
+            compaction_status=compaction_status,
+            original_message_count=original_message_count,
+            fitted_message_count=len(fitted),
             summary=summary,
         )
         self.last_snapshot = snapshot
@@ -387,7 +427,10 @@ class ContextBuilder:
             return "<非 UTF-8 文件，未读取>"
         return truncate_output(text, self.read_limit)[0]
 
-    def _estimate(self, messages: list[Message], tools: list[ToolDefinition]) -> int:
+    def _estimate_messages(self, messages: list[Message]) -> int:
         message_text = "\n".join(message.text_content for message in messages)
+        return self.estimator(message_text)
+
+    def _estimate_tools(self, tools: list[ToolDefinition]) -> int:
         tool_text = json.dumps([tool.model_dump(mode="json") for tool in tools], ensure_ascii=False)
-        return self.estimator(message_text) + self.estimator(tool_text)
+        return self.estimator(tool_text)

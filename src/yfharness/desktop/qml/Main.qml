@@ -76,6 +76,9 @@ ApplicationWindow {
             root.openInspector(2)
         } else if (actionId === "context") {
             root.openInspector(1)
+        } else if (actionId === "usage") {
+            root.openInspector(0)
+            controller.refreshUsage()
         } else if (actionId === "skills") {
             promptInput.text = "$"
             controller.filterSkills("$")
@@ -1631,6 +1634,79 @@ ApplicationWindow {
                         ColumnLayout {
                             width: parent.width
                             spacing: 0
+                            RowLayout {
+                                Layout.fillWidth: true
+                                Text {
+                                    text: "本地用量与额度"
+                                    color: root.textPrimary
+                                    font.pixelSize: 12
+                                    font.weight: Font.DemiBold
+                                }
+                                Item { Layout.fillWidth: true }
+                                ToolButton {
+                                    glyph: "↻"
+                                    tooltip: "刷新本地用量"
+                                    onClicked: controller.refreshUsage()
+                                }
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                Layout.topMargin: 6
+                                text: "只统计本机保存的运行记录，不代表 Provider 账户余额。"
+                                color: root.textMuted
+                                font.pixelSize: 9
+                                wrapMode: Text.Wrap
+                            }
+                            Repeater {
+                                model: controller ? controller.usageModel : null
+                                delegate: Rectangle {
+                                    required property string label
+                                    required property int tokens
+                                    required property int runs
+                                    required property int estimated
+                                    required property string cost
+                                    required property string budget
+                                    required property real ratio
+                                    Layout.fillWidth: true
+                                    Layout.topMargin: 10
+                                    implicitHeight: usageColumn.implicitHeight + 22
+                                    radius: 10
+                                    color: root.surfaceSoft
+                                    ColumnLayout {
+                                        id: usageColumn
+                                        anchors.fill: parent
+                                        anchors.margins: 11
+                                        spacing: 5
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            Text { text: label; color: root.textPrimary; font.pixelSize: 10; font.weight: Font.DemiBold }
+                                            Item { Layout.fillWidth: true }
+                                            Text { text: tokens.toLocaleString() + " tokens"; color: root.accent; font.pixelSize: 10; font.weight: Font.DemiBold }
+                                        }
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: runs + " 次运行 · 估算 " + estimated.toLocaleString() + " · " + cost
+                                            color: root.textSecondary
+                                            font.pixelSize: 9
+                                            elide: Text.ElideRight
+                                        }
+                                        Rectangle {
+                                            Layout.fillWidth: true
+                                            height: 5
+                                            radius: 3
+                                            color: root.line
+                                            Rectangle {
+                                                width: parent.width * ratio
+                                                height: parent.height
+                                                radius: 3
+                                                color: ratio >= 0.9 ? root.danger : root.accent
+                                            }
+                                        }
+                                        Text { text: budget; color: root.textMuted; font.pixelSize: 8 }
+                                    }
+                                }
+                            }
+                            Hairline { Layout.fillWidth: true; Layout.topMargin: 18; Layout.bottomMargin: 16 }
                             Text { text: "模型来源"; color: root.textMuted; font.pixelSize: 9; font.letterSpacing: 0.8 }
                             ControlSelect {
                                 id: providerSelect
@@ -1757,6 +1833,28 @@ ApplicationWindow {
                                 text: controller ? controller.contextSummary : ""
                                 color: root.textMuted
                                 font.pixelSize: 9
+                            }
+                            QuietButton {
+                                Layout.fillWidth: true
+                                label: controller && controller.contextCompacted
+                                       ? "重新压缩当前会话" : "立即压缩当前会话"
+                                glyph: "◫"
+                                enabled: controller ? !controller.busy && controller.currentSessionId.length > 0 : false
+                                onClicked: controller.compactContext()
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                text: controller && controller.contextCompactionStatus === "reused"
+                                      ? "本次运行已复用持久化摘要"
+                                      : (controller && controller.contextCompactionStatus === "created"
+                                         ? "本次运行自动生成了新摘要"
+                                         : (controller && controller.contextCompactionStatus === "manual"
+                                            ? "摘要已手动更新，将在下次运行复用"
+                                            : (controller && controller.contextCompactionStatus === "stored"
+                                               ? "已有持久化摘要，将在下次运行复用" : "尚未压缩")))
+                                color: root.textSecondary
+                                font.pixelSize: 9
+                                wrapMode: Text.Wrap
                             }
                         ListView {
                             id: instructionList
@@ -1915,7 +2013,7 @@ ApplicationWindow {
                 Text {
                     Layout.fillWidth: true
                     Layout.topMargin: 10
-                    text: "YF-Harness 0.9 · Local first"
+                    text: "YF-Harness 0.10 · Local first"
                     color: root.textMuted
                     font.pixelSize: 9
                     horizontalAlignment: Text.AlignHCenter
@@ -2053,6 +2151,7 @@ ApplicationWindow {
                     ListElement { actionId: "goal"; glyph: "◎"; title: "设置持久目标"; detail: "为后续运行保留当前任务方向"; shortcut: "G" }
                     ListElement { actionId: "changes"; glyph: "△"; title: "审查文件变更"; detail: "查看 Diff 并安全撤销文件或整次运行"; shortcut: "R" }
                     ListElement { actionId: "context"; glyph: "◔"; title: "查看上下文"; detail: "检查 Token 预算、规则来源与压缩状态"; shortcut: "C" }
+                    ListElement { actionId: "usage"; glyph: "∑"; title: "用量与额度"; detail: "查看会话、今日与本月本地 Token/成本账本"; shortcut: "U" }
                     ListElement { actionId: "skills"; glyph: "$"; title: "调用项目技能"; detail: "发现 Codex、Claude 与 Cursor 项目工作流"; shortcut: "S" }
                     ListElement { actionId: "project"; glyph: "↗"; title: "切换项目"; detail: "选择另一个本地工作区"; shortcut: "O" }
                 }

@@ -8,6 +8,7 @@ import sqlite3
 import sys
 import time
 from collections.abc import Awaitable, Callable
+from datetime import datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -26,6 +27,7 @@ from yfharness.core.agent_events import (
     ToolExecutionStarted,
 )
 from yfharness.core.attachments import prepare_image
+from yfharness.core.compaction import CompactionSummary
 from yfharness.core.context import ContextBuilder
 from yfharness.core.events import TextDelta
 from yfharness.core.exceptions import HarnessError
@@ -34,6 +36,7 @@ from yfharness.core.models import (
     ApprovalRequest,
     ContentPart,
     HealthStatus,
+    Message,
     MessageRole,
     RunStatus,
 )
@@ -358,6 +361,7 @@ async def _run_once(
     trace_repo: TraceRepository | None = None
     run_record = None
     history = []
+    restored_summary: CompactionSummary | None = None
     guard = WorkspaceGuard(config.workspace)
     changes = ChangeJournal(guard)
     tool_registry = builtin_tools()
@@ -428,6 +432,7 @@ async def _run_once(
                 )
             if session_goal is None and existing_session.goal_status == "active":
                 effective_goal = existing_session.goal
+            restored_summary = existing_session.context_summary
             history = await session_repo.messages(session_id)
         run_record = await run_repo.create(session_id)
     else:
@@ -510,6 +515,8 @@ async def _run_once(
         max_token_budget=config.agent.max_token_budget,
         max_cost=config.agent.max_cost,
     )
+    context_builder = ContextBuilder(config.workspace, provider.estimate_tokens)
+    context_builder.previous_summary = restored_summary
     runner = AgentRunner(
         provider=provider,
         model=model_config,
@@ -517,7 +524,7 @@ async def _run_once(
         mode=mode,
         limits=agent_limits,
         event_sink=observe,
-        context_builder=ContextBuilder(config.workspace, provider.estimate_tokens),
+        context_builder=context_builder,
     )
     if runner_sink is not None:
         runner_sink(runner)
@@ -555,9 +562,24 @@ async def _run_once(
         typer.echo()
     if session_repo is not None:
         existing_ids = {message.id for message in history}
+        original_user_saved = False
         for message in result.messages:
             if message.role is not MessageRole.SYSTEM and message.id not in existing_ids:
-                await session_repo.add_message(session_id, message)
+                persisted = message
+                if message.role is MessageRole.USER and not original_user_saved:
+                    persisted = Message.text(
+                        MessageRole.USER,
+                        prompt,
+                        id=message.id,
+                        metadata=message.metadata,
+                        created_at=message.created_at,
+                    )
+                    persisted.content.extend(attachments)
+                    original_user_saved = True
+                await session_repo.add_message(session_id, persisted)
+        snapshot = context_builder.last_snapshot
+        if snapshot is not None and snapshot.summary != restored_summary:
+            await session_repo.update_context_summary(session_id, snapshot.summary)
     if run_record is not None and run_repo is not None:
         await run_repo.finish(
             run_record,
@@ -643,6 +665,9 @@ async def _run_once(
             "budget_tokens": snapshot.budget_tokens,
             "usage_ratio": snapshot.usage_ratio,
             "compacted": snapshot.compacted,
+            "compaction_status": snapshot.compaction_status,
+            "original_message_count": snapshot.original_message_count,
+            "fitted_message_count": snapshot.fitted_message_count,
             "sources": [source.model_dump(mode="json") for source in snapshot.sources],
         }
     return {
@@ -939,6 +964,100 @@ def sessions_export(
     else:
         output.write_text(content, encoding="utf-8")
         typer.echo(output)
+
+
+@sessions_app.command("compact")
+def sessions_compact(session_id: str) -> None:
+    """立即为会话生成可跨运行复用的结构化摘要。"""
+
+    async def operation() -> CompactionSummary:
+        database = Database(database_file())
+        await database.initialize()
+        repository = SessionRepository(database)
+        session = await repository.get(session_id)
+        if session is None:
+            raise KeyError(f"session not found: {session_id}")
+        messages = await repository.messages(session_id)
+        if not messages:
+            raise ValueError("会话没有可压缩的消息")
+        workspace = Path(session.workspace) if session.workspace else load_config().workspace
+        builder = ContextBuilder(workspace, lambda text: max(1, len(text) // 4))
+        builder.previous_summary = session.context_summary
+        summary = builder.manual_compact(messages)
+        await repository.update_context_summary(session_id, summary)
+        return summary
+
+    try:
+        summary = asyncio.run(operation())
+    except (KeyError, ValueError, sqlite3.Error) as exc:
+        typer.echo(f"错误：{exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"已压缩会话 {session_id} · {len(summary.to_markdown())} 字符摘要")
+
+
+@app.command("usage")
+def usage_command(
+    session: Annotated[
+        str | None,
+        typer.Option("--session", help="会话 ID；默认使用当前工作区最近会话。"),
+    ] = None,
+    output: Annotated[str, typer.Option("--output", help="输出格式：text 或 json。")] = "text",
+) -> None:
+    """查看本地记录的会话、今日与本月 Token/成本统计。"""
+
+    if output not in {"text", "json"}:
+        typer.echo("错误：--output 只能是 text 或 json。", err=True)
+        raise typer.Exit(code=2)
+
+    async def operation() -> dict[str, object]:
+        config = load_config()
+        database = Database(database_file())
+        await database.initialize()
+        sessions = SessionRepository(database)
+        session_id = session
+        if session_id is None:
+            recent = await sessions.list(workspace=config.workspace)
+            session_id = recent[0].id if recent else ""
+        elif await sessions.get(session_id) is None:
+            raise KeyError(f"session not found: {session_id}")
+        now = datetime.now().astimezone()
+        overview = await TraceRepository(database).usage_overview(
+            session_id=session_id,
+            workspace=config.workspace,
+            day_start=now.replace(hour=0, minute=0, second=0, microsecond=0),
+            month_start=now.replace(day=1, hour=0, minute=0, second=0, microsecond=0),
+        )
+        return {
+            "source": "local_usage_records",
+            "provider_balance": "unavailable",
+            "session_id": session_id or None,
+            "overview": overview.model_dump(mode="json"),
+            "budgets": config.usage.model_dump(mode="json"),
+        }
+
+    try:
+        payload = asyncio.run(operation())
+    except (KeyError, sqlite3.Error) as exc:
+        typer.echo(f"错误：{exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    if output == "json":
+        typer.echo(json.dumps(payload, ensure_ascii=False))
+        return
+    overview = payload["overview"]
+    assert isinstance(overview, dict)
+    for key, label in (("session", "当前会话"), ("today", "今日"), ("month", "本月")):
+        totals = overview[key]
+        assert isinstance(totals, dict)
+        typer.echo(
+            f"{label}: {totals['total_tokens']:,} tokens · {totals['run_count']} 次运行 · "
+            f"其中估算 {totals['estimated_tokens']:,} · 已知成本 ${totals['known_cost']:.4f}"
+            + (
+                f" · {totals['unknown_cost_runs']} 次成本未知"
+                if totals["unknown_cost_runs"]
+                else ""
+            )
+        )
+    typer.echo("说明：以上来自本地运行记录，不代表 Provider 账户余额。")
 
 
 async def _session_update(operation: str, session_id: str, value: str | None = None) -> bool:

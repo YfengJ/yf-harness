@@ -38,7 +38,12 @@ class CompactionSummary(DomainModel):
 
 
 class ConversationCompactor:
-    def summarize(self, messages: list[Message]) -> CompactionSummary:
+    def summarize(
+        self,
+        messages: list[Message],
+        *,
+        previous: CompactionSummary | None = None,
+    ) -> CompactionSummary:
         user_texts = [
             message.text_content for message in messages if message.role is MessageRole.USER
         ]
@@ -65,9 +70,15 @@ class ConversationCompactor:
             all_lines, ("待处理", "未解决", "下一步", "todo", "unresolved", "next step")
         )
         files = sorted({match for line in all_lines for match in _PATH_PATTERN.findall(line)})
-        goal = _first_nonempty(reversed(user_texts)) or "继续当前任务"
-        next_step = unresolved[-1] if unresolved else "继续当前目标并验证结果"
-        return CompactionSummary(
+        goal = _first_nonempty(reversed(user_texts))
+        if goal is None:
+            goal = previous.current_goal if previous is not None else "继续当前任务"
+        next_step = (
+            unresolved[-1]
+            if unresolved
+            else (previous.next_step if previous is not None else "继续当前目标并验证结果")
+        )
+        fresh = CompactionSummary(
             current_goal=_clip(goal, 1_500),
             completed=_unique_clipped(completed, 20),
             user_constraints=_unique_clipped(constraints, 30),
@@ -76,6 +87,26 @@ class ConversationCompactor:
             test_status=_unique_clipped(tests, 20),
             unresolved_issues=_unique_clipped(unresolved, 20),
             next_step=_clip(next_step, 500),
+        )
+        if previous is None:
+            return fresh
+        return CompactionSummary(
+            current_goal=fresh.current_goal,
+            completed=_merge(previous.completed, fresh.completed, 20),
+            user_constraints=_merge(previous.user_constraints, fresh.user_constraints, 30),
+            important_decisions=_merge(
+                previous.important_decisions,
+                fresh.important_decisions,
+                20,
+            ),
+            modified_files=_merge(previous.modified_files, fresh.modified_files, 50),
+            test_status=_merge(previous.test_status, fresh.test_status, 20),
+            unresolved_issues=_merge(
+                previous.unresolved_issues,
+                fresh.unresolved_issues,
+                20,
+            ),
+            next_step=fresh.next_step,
         )
 
 
@@ -97,6 +128,10 @@ def _unique_clipped(values: list[str], limit: int) -> list[str]:
     return list(dict.fromkeys(_clip(value.strip(), 500) for value in values if value.strip()))[
         :limit
     ]
+
+
+def _merge(previous: list[str], fresh: list[str], limit: int) -> list[str]:
+    return _unique_clipped([*previous, *fresh], limit)
 
 
 def _clip(value: str, limit: int) -> str:

@@ -186,6 +186,93 @@ def test_automatic_compaction_keeps_recent_messages_and_summary(tmp_path: Path) 
     assert "必须保留约束" in rendered
 
 
+def test_repeated_compaction_merges_previous_structured_constraints(tmp_path: Path) -> None:
+    builder = ContextBuilder(tmp_path, len, recent_messages=2, compaction_threshold=0.1)
+    previous = builder.manual_compact(
+        [Message.text(MessageRole.USER, "必须保留旧约束，不得删除审计历史")]
+    )
+
+    builder.manual_compact([Message.text(MessageRole.USER, "继续新任务，必须保持 workspace 隔离")])
+
+    assert builder.previous_summary is not None
+    assert builder.previous_summary != previous
+    assert any("旧约束" in item for item in builder.previous_summary.user_constraints)
+    assert any("workspace" in item for item in builder.previous_summary.user_constraints)
+
+
+def test_repeated_compaction_without_recent_user_keeps_goal_and_reused_state(
+    tmp_path: Path,
+) -> None:
+    builder = ContextBuilder(tmp_path, lambda text: max(1, len(text) // 4))
+    summary = builder.manual_compact([Message.text(MessageRole.USER, "必须完成真实发布目标")])
+    messages = [
+        Message.text(MessageRole.SYSTEM, summary.to_markdown()),
+        Message.text(MessageRole.ASSISTANT, "工具执行完成"),
+    ]
+
+    snapshot = builder.fit_messages(
+        messages,
+        model=model(context_window=8_000),
+        tools=[],
+    )
+    merged = builder.manual_compact([Message.text(MessageRole.ASSISTANT, "继续验证")])
+
+    assert snapshot.compacted
+    assert snapshot.compaction_status == "reused"
+    assert merged.current_goal == "必须完成真实发布目标"
+
+
+def test_compaction_uses_binary_search_and_estimates_tool_schema_once(tmp_path: Path) -> None:
+    calls = 0
+
+    def estimator(text: str) -> int:
+        nonlocal calls
+        calls += 1
+        return max(1, len(text) // 4)
+
+    builder = ContextBuilder(
+        tmp_path,
+        estimator,
+        recent_messages=36,
+        compaction_threshold=0.8,
+    )
+    tools = [
+        ToolDefinition(
+            name=f"tool_{index}",
+            description="Inspect workspace artifact " * 3,
+            parameters={
+                "type": "object",
+                "properties": {
+                    f"field_{field}": {
+                        "type": "string",
+                        "description": "value " * 8,
+                    }
+                    for field in range(8)
+                },
+            },
+        )
+        for index in range(16)
+    ]
+    messages = [Message.text(MessageRole.SYSTEM, "system rules " * 100)] + [
+        Message.text(
+            MessageRole.USER if index % 2 == 0 else MessageRole.ASSISTANT,
+            f"message {index} " + "context payload " * 220,
+        )
+        for index in range(48)
+    ]
+
+    snapshot = builder.fit_messages(
+        messages,
+        model=model(context_window=24_000),
+        tools=tools,
+    )
+
+    assert snapshot.compaction_status == "created"
+    assert snapshot.original_message_count == 49
+    assert snapshot.fitted_message_count < snapshot.original_message_count
+    assert calls <= 10
+
+
 def test_model_without_system_message_receives_combined_user_instructions(tmp_path: Path) -> None:
     builder = ContextBuilder(tmp_path, lambda text: max(1, len(text) // 4))
     snapshot = builder.build(
