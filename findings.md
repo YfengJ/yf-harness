@@ -10,6 +10,8 @@
 - GitHub 以当前 workspace 的 origin 作为能力边界，拒绝非 `github.com` 远端；读操作与写操作分层，写工具 always-approval，且刻意不实现 force push、删除、merge 或 settings。
 - 真实验证已经覆盖 Brave MCP initialize/tools-list、私密 GitHub Skill 安装和当前私密仓库状态读取；没有真实 Brave Key 时不能声称已经完成在线搜索查询。
 - 安全审查定位到两个边界问题：导入 Skill 根目录符号链接在 resolve 后无法识别；GitHub CLI 环境缺少 HOME 会把状态写到 workspace。两者均已修复并有负向测试。
+- 首轮发布 CI 的 minimal-install 在 Linux 无系统 keyring 后端时失败；凭据读取现将“没有可用后端”视为未保存凭据，而写入仍明确失败，避免无桌面环境阻断 MCP 配置读取且不把秘密降级写入明文。
+- 最终 CI run `33636334636` 的 8 个任务全绿；最终源码重新生成的 macOS App 为 239 MiB、版本 0.12.0、深度签名和启动 smoke 均通过，1040×720 布局报告 14/14 项无越界。
 
 ## 阶段 20：桌面对话减法与统一附件入口（2026-09-01）
 

@@ -2,8 +2,8 @@
 
 ## 当前状态
 
-- 当前阶段：阶段 21（Composer 控制、工具连接、Skills 与 GitHub，发布验证中）
-- 整体状态：0.12.0 功能实现与专项验证完成，正在执行全量发布门禁、App 重建和私密 GitHub 发布
+- 当前阶段：阶段 21（Composer 控制、工具连接、Skills 与 GitHub，已完成）
+- 整体状态：0.12.0 已完成本地门禁、原生 App 重建、私密 GitHub 发布和跨平台 CI
 - 初始仓库：空目录、非 Git 仓库
 - 当前风险：P1（安全边界、子进程、持久化、CLI/TUI 公共契约）
 
@@ -15,7 +15,9 @@
 - Skills 管理器支持查看、创建、本地导入和 GitHub 安装；真实私密仓库临时安装已发现并调用 `codex:review-changes`。导入拒绝根目录和子项符号链接、超限目录与覆盖。
 - GitHub 工作区复用当前 workspace 的 `github.com` origin 和已有 `gh` 登录；真实读取确认 `YfengJ/yf-harness` 为 PRIVATE，分支 main、ahead/behind 均为 0。十个 GitHub 工具已进入统一审批链。
 - 发布审查发现 GitHub CLI 缺少 HOME 时会在 cwd 创建 `.local/state/gh/device-id`，现已固定使用用户 HOME/GH_CONFIG_DIR，并增加回归；意外文件已移出仓库，未提交。
-- 当前功能提交与安全修复已分批提交；0.12.0 版本和文档已对齐，待全量静态、测试、Eval、构建、Bundle、私密推送和远端 CI 验证。
+- 最终本地门禁通过：Ruff/format、核心与桌面 mypy、206 项全量测试、82.26% 覆盖率、20/20 Eval、sdist/wheel 与隔离安装 smoke；最小依赖环境另有 183 passed、1 skipped、8 deselected。
+- 最终 `dist/YF-Harness.app` 已从发布源码重建为 239 MiB，Plist 短版本/构建版本均为 0.12.0，ad-hoc 深度签名与启动 smoke 通过；1040×720 压力预览的 14 个关键布局对象全部位于窗口内。
+- `main` 已推送到私密仓库 `YfengJ/yf-harness`；GitHub Actions run `33636334636` 的 8 个任务全部通过，覆盖 Windows/macOS/Linux、Python 3.12/3.13、最小安装和桌面 smoke。
 
 ## 阶段 20：桌面对话减法与统一附件入口（2026-09-01）
 
