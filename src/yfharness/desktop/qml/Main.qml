@@ -39,6 +39,8 @@ ApplicationWindow {
     property bool commandPreviewRequested: false
     property bool connectionsPreviewRequested: false
     property bool skillsPreviewRequested: false
+    property bool githubPreviewRequested: false
+    property string githubPendingSync: ""
     onCommandPreviewRequestedChanged: {
         if (commandPreviewRequested)
             Qt.callLater(function() { commandCenter.open() })
@@ -51,6 +53,12 @@ ApplicationWindow {
         if (skillsPreviewRequested) {
             controller.filterSkills("$")
             Qt.callLater(function() { skillsDialog.open() })
+        }
+    }
+    onGithubPreviewRequestedChanged: {
+        if (githubPreviewRequested) {
+            controller.refreshGitHub()
+            Qt.callLater(function() { githubDialog.open() })
         }
     }
 
@@ -96,6 +104,9 @@ ApplicationWindow {
             Qt.callLater(function() { skillsDialog.open() })
         } else if (actionId === "connections") {
             Qt.callLater(function() { connectionsDialog.open() })
+        } else if (actionId === "github") {
+            controller.refreshGitHub()
+            Qt.callLater(function() { githubDialog.open() })
         } else if (actionId === "goal") {
             Qt.callLater(function() { goalPopup.open() })
         } else if (actionId === "project") {
@@ -2083,6 +2094,7 @@ ApplicationWindow {
                     ListElement { actionId: "usage"; glyph: "∑"; title: "用量与额度"; detail: "查看会话、今日与本月本地 Token/成本账本"; shortcut: "U" }
                     ListElement { actionId: "skills"; glyph: "$"; title: "Skills 管理与调用"; detail: "创建、导入、安装并调用项目技能"; shortcut: "S" }
                     ListElement { actionId: "connections"; glyph: "⌘"; title: "工具与连接"; detail: "管理联网 MCP、凭据与内置工具状态"; shortcut: "M" }
+                    ListElement { actionId: "github"; glyph: "◇"; title: "GitHub 仓库"; detail: "同步分支并查看 PR、Issue 与 Actions"; shortcut: "H" }
                     ListElement { actionId: "project"; glyph: "↗"; title: "切换项目"; detail: "选择另一个本地工作区"; shortcut: "O" }
                 }
                 delegate: Rectangle {
@@ -2146,6 +2158,16 @@ ApplicationWindow {
                             text: commandRow.shortcut
                             color: root.textMuted
                             font.pixelSize: 9
+                        }
+                    }
+                    QuietButton {
+                        Layout.topMargin: 8
+                        label: "打开 GitHub 仓库工作区"
+                        glyph: "◇"
+                        onClicked: {
+                            connectionsDialog.close()
+                            controller.refreshGitHub()
+                            githubDialog.open()
                         }
                     }
                     MouseArea {
@@ -2561,6 +2583,281 @@ ApplicationWindow {
                 Layout.margins: 16
                 Item { Layout.fillWidth: true }
                 QuietButton { label: "完成"; prominent: true; onClicked: connectionsDialog.close() }
+            }
+        }
+    }
+
+    Dialog {
+        id: githubDialog
+        objectName: "githubDialog"
+        anchors.centerIn: parent
+        width: Math.min(760, root.width - 80)
+        modal: true
+        closePolicy: Popup.CloseOnEscape
+        padding: 0
+        background: Rectangle { radius: 16; color: root.surface; border.color: root.lineStrong; border.width: 1 }
+        contentItem: ColumnLayout {
+            spacing: 0
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.leftMargin: 24
+                Layout.rightMargin: 24
+                Layout.topMargin: 20
+                Layout.bottomMargin: 16
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 4
+                    Text { text: "GitHub"; color: root.textPrimary; font.pixelSize: 18; font.weight: Font.DemiBold }
+                    Text {
+                        text: controller
+                              ? (controller.githubConnected
+                                 ? controller.githubRepository + "  ·  " + controller.githubVisibility
+                                 : controller.githubStatus)
+                              : ""
+                        color: root.textMuted
+                        font.pixelSize: 10
+                    }
+                }
+                MetaPill {
+                    visible: controller ? controller.githubConnected : false
+                    label: controller ? controller.githubAccount + "  /  " + controller.githubBranch : ""
+                    dotColor: controller && controller.githubDirty ? root.danger : root.success
+                }
+                QuietButton { label: "刷新"; glyph: "↻"; onClicked: controller.refreshGitHub() }
+            }
+            TabBar {
+                id: githubTabs
+                Layout.fillWidth: true
+                background: Rectangle { color: "transparent" }
+                SegmentTab { text: "概览" }
+                SegmentTab { text: "Pull Requests" }
+                SegmentTab { text: "Issues" }
+                SegmentTab { text: "Actions" }
+            }
+            Hairline { Layout.fillWidth: true }
+            StackLayout {
+                Layout.fillWidth: true
+                Layout.preferredHeight: Math.min(500, root.height - 270)
+                currentIndex: githubTabs.currentIndex
+                Item {
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: 24
+                        spacing: 12
+                        Text { text: "仓库同步"; color: root.textPrimary; font.pixelSize: 13; font.weight: Font.DemiBold }
+                        Text {
+                            Layout.fillWidth: true
+                            text: controller && controller.githubConnected
+                                  ? "分支 " + controller.githubBranch
+                                    + (controller.githubDirty ? "  ·  有未提交变更" : "  ·  工作区干净")
+                                  : "需要本机 gh 登录，并为当前项目配置 GitHub origin。"
+                            color: controller && controller.githubDirty ? root.danger : root.textSecondary
+                            font.pixelSize: 10
+                        }
+                        RowLayout {
+                            spacing: 8
+                            QuietButton { label: "Fetch"; onClicked: controller.syncGitHub("fetch") }
+                            QuietButton {
+                                label: "Pull（仅快进）"
+                                enabled: controller ? controller.githubConnected && !controller.githubDirty : false
+                                onClicked: {
+                                    root.githubPendingSync = "pull_ff"
+                                    githubSyncDialog.open()
+                                }
+                            }
+                            QuietButton {
+                                label: "Push 当前分支"
+                                prominent: true
+                                enabled: controller ? controller.githubConnected : false
+                                onClicked: {
+                                    root.githubPendingSync = "push"
+                                    githubSyncDialog.open()
+                                }
+                            }
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 8
+                            TextField {
+                                id: githubBranchName
+                                Layout.fillWidth: true
+                                placeholderText: "新分支名称，例如 codex/search-tools"
+                            }
+                            QuietButton {
+                                label: "创建并切换"
+                                enabled: githubBranchName.text.trim().length > 0
+                                         && controller && !controller.githubDirty
+                                onClicked: {
+                                    controller.createGitHubBranch(githubBranchName.text)
+                                    githubBranchName.clear()
+                                }
+                            }
+                        }
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 100
+                            radius: 10
+                            color: root.surfaceSoft
+                            ColumnLayout {
+                                anchors.fill: parent
+                                anchors.margins: 14
+                                Text { text: "安全边界"; color: root.textPrimary; font.pixelSize: 10; font.weight: Font.DemiBold }
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: "只操作当前 workspace 的 origin；禁止 force push、远程删除、自动合并和仓库权限修改。模型发起的所有写操作仍需审批。"
+                                    color: root.textMuted
+                                    font.pixelSize: 9
+                                    wrapMode: Text.Wrap
+                                }
+                            }
+                        }
+                        Item { Layout.fillHeight: true }
+                    }
+                }
+                Item {
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: 18
+                        spacing: 8
+                        ListView {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 190
+                            clip: true
+                            model: controller ? controller.githubPullRequestModel : null
+                            delegate: Rectangle {
+                                required property int number
+                                required property string title
+                                required property string detail
+                                width: ListView.view.width
+                                height: 54
+                                color: "transparent"
+                                ColumnLayout {
+                                    anchors.fill: parent
+                                    Text { Layout.fillWidth: true; text: "#" + number + "  " + title; color: root.textPrimary; font.pixelSize: 10; font.weight: Font.DemiBold; elide: Text.ElideRight }
+                                    Text { text: detail; color: root.textMuted; font.pixelSize: 8 }
+                                }
+                                Hairline { anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom }
+                            }
+                        }
+                        Hairline { Layout.fillWidth: true }
+                        TextField { id: prTitle; Layout.fillWidth: true; placeholderText: "新 Pull Request 标题" }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            TextField { id: prBase; Layout.preferredWidth: 150; text: "main"; placeholderText: "目标分支" }
+                            CheckBox { id: prDraft; text: "草稿"; font.pixelSize: 10 }
+                            Item { Layout.fillWidth: true }
+                            QuietButton { label: "创建 PR"; prominent: true; enabled: prTitle.text.trim().length > 0; onClicked: controller.createGitHubPullRequest(prTitle.text, prBody.text, prBase.text, prDraft.checked) }
+                        }
+                        TextArea { id: prBody; Layout.fillWidth: true; Layout.fillHeight: true; placeholderText: "说明（可选）"; wrapMode: TextEdit.Wrap; background: Rectangle { radius: 8; color: root.surfaceSoft; border.color: root.line } }
+                    }
+                }
+                Item {
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: 18
+                        spacing: 8
+                        ListView {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 210
+                            clip: true
+                            model: controller ? controller.githubIssueModel : null
+                            delegate: Rectangle {
+                                required property int number
+                                required property string title
+                                required property string detail
+                                width: ListView.view.width
+                                height: 54
+                                color: "transparent"
+                                ColumnLayout {
+                                    anchors.fill: parent
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: "#" + number + "  " + title
+                                        color: root.textPrimary
+                                        font.pixelSize: 10
+                                        font.weight: Font.DemiBold
+                                        elide: Text.ElideRight
+                                    }
+                                    Text { text: detail; color: root.textMuted; font.pixelSize: 8 }
+                                }
+                                Hairline { anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom }
+                            }
+                        }
+                        TextField { id: issueTitle; Layout.fillWidth: true; placeholderText: "新 Issue 标题" }
+                        TextArea { id: issueBody; Layout.fillWidth: true; Layout.fillHeight: true; placeholderText: "问题说明（可选）"; wrapMode: TextEdit.Wrap; background: Rectangle { radius: 8; color: root.surfaceSoft; border.color: root.line } }
+                        QuietButton { label: "创建 Issue"; prominent: true; enabled: issueTitle.text.trim().length > 0; onClicked: controller.createGitHubIssue(issueTitle.text, issueBody.text) }
+                    }
+                }
+                Item {
+                    ListView {
+                        anchors.fill: parent
+                        anchors.margins: 18
+                        clip: true
+                        spacing: 2
+                        model: controller ? controller.githubActionModel : null
+                        delegate: Rectangle {
+                            required property int runId
+                            required property string title
+                            required property string detail
+                            required property string status
+                            width: ListView.view.width
+                            height: 62
+                            color: "transparent"
+                            RowLayout {
+                                anchors.fill: parent
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    Text { Layout.fillWidth: true; text: title; color: root.textPrimary; font.pixelSize: 10; font.weight: Font.DemiBold; elide: Text.ElideRight }
+                                    Text { text: detail + "  ·  " + status; color: status === "success" ? root.success : root.textMuted; font.pixelSize: 8 }
+                                }
+                                QuietButton { label: "重跑失败项"; enabled: status === "failure"; onClicked: controller.rerunGitHubAction(runId) }
+                            }
+                            Hairline { anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom }
+                        }
+                    }
+                }
+            }
+            Hairline { Layout.fillWidth: true }
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.margins: 16
+                Text { Layout.fillWidth: true; text: controller ? controller.githubStatus : ""; color: root.textMuted; font.pixelSize: 9; elide: Text.ElideRight }
+                QuietButton { label: "完成"; prominent: true; onClicked: githubDialog.close() }
+            }
+        }
+    }
+
+    Dialog {
+        id: githubSyncDialog
+        anchors.centerIn: parent
+        width: Math.min(430, root.width - 80)
+        modal: true
+        closePolicy: Popup.NoAutoClose
+        title: "确认 GitHub 同步"
+        standardButtons: Dialog.NoButton
+        contentItem: ColumnLayout {
+            spacing: 14
+            Text {
+                Layout.fillWidth: true
+                text: root.githubPendingSync === "push"
+                      ? "将当前分支非强制推送到 origin。确定继续？"
+                      : "将使用 --ff-only 拉取当前分支，不会自动创建合并提交。确定继续？"
+                color: root.textSecondary
+                font.pixelSize: 11
+                wrapMode: Text.Wrap
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                Item { Layout.fillWidth: true }
+                QuietButton { label: "取消"; onClicked: githubSyncDialog.close() }
+                QuietButton {
+                    label: "确认执行"
+                    prominent: true
+                    onClicked: {
+                        controller.syncGitHub(root.githubPendingSync)
+                        githubSyncDialog.close()
+                    }
+                }
             }
         }
     }

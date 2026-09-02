@@ -63,6 +63,7 @@ from yfharness.core.skill_install import (
     install_local_skill,
 )
 from yfharness.core.skills import SkillCatalog, SkillSummary
+from yfharness.integrations.github import GitHubService
 from yfharness.integrations.mcp import register_mcp_tools
 from yfharness.storage.database import Database
 from yfharness.storage.models import SessionRecord, UsageTotals
@@ -172,6 +173,7 @@ class DesktopController(QObject):
     goalChanged = Signal()
     workspaceChanged = Signal()
     connectionsChanged = Signal()
+    githubChanged = Signal()
     errorOccurred = Signal(str)
     approvalRequested = Signal(str)
     agentEvent = Signal(str, object)
@@ -208,6 +210,9 @@ class DesktopController(QObject):
             ["label", "tokens", "runs", "estimated", "cost", "budget", "ratio"],
             self,
         )
+        self.githubPullRequests = DictListModel(["number", "title", "detail", "url"], self)
+        self.githubIssues = DictListModel(["number", "title", "detail", "url"], self)
+        self.githubActions = DictListModel(["runId", "title", "detail", "status", "url"], self)
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="yfh-desktop")
         self._busy = False
         self._status = "准备就绪"
@@ -243,6 +248,8 @@ class DesktopController(QObject):
         self._all_skills: list[SkillSummary] = []
         self._mcp_status = "尚未测试"
         self._brave_key_present = False
+        self._github_snapshot: dict[str, object] = {}
+        self._github_status = "尚未连接"
         self._refresh_connection_state()
         self._refresh_skills()
         self.agentEvent.connect(self._handle_agent_event, Qt.ConnectionType.QueuedConnection)
@@ -280,6 +287,18 @@ class DesktopController(QObject):
     def usageModel(self) -> QObject:
         return self.usage
 
+    @Property(QObject, constant=True)
+    def githubPullRequestModel(self) -> QObject:
+        return self.githubPullRequests
+
+    @Property(QObject, constant=True)
+    def githubIssueModel(self) -> QObject:
+        return self.githubIssues
+
+    @Property(QObject, constant=True)
+    def githubActionModel(self) -> QObject:
+        return self.githubActions
+
     @Property(int, notify=attachmentsChanged)
     def attachmentCount(self) -> int:
         return len(self._pending_attachments)
@@ -308,6 +327,34 @@ class DesktopController(QObject):
     @Property(str, notify=connectionsChanged)
     def mcpStatus(self) -> str:
         return self._mcp_status
+
+    @Property(bool, notify=githubChanged)
+    def githubConnected(self) -> bool:
+        return bool(self._github_snapshot.get("repository"))
+
+    @Property(str, notify=githubChanged)
+    def githubRepository(self) -> str:
+        return str(self._github_snapshot.get("repository", "未连接"))
+
+    @Property(str, notify=githubChanged)
+    def githubAccount(self) -> str:
+        return str(self._github_snapshot.get("account", ""))
+
+    @Property(str, notify=githubChanged)
+    def githubBranch(self) -> str:
+        return str(self._github_snapshot.get("branch", ""))
+
+    @Property(str, notify=githubChanged)
+    def githubVisibility(self) -> str:
+        return str(self._github_snapshot.get("visibility", ""))
+
+    @Property(bool, notify=githubChanged)
+    def githubDirty(self) -> bool:
+        return bool(self._github_snapshot.get("dirty"))
+
+    @Property(str, notify=githubChanged)
+    def githubStatus(self) -> str:
+        return self._github_status
 
     @Property(bool, notify=busyChanged)
     def busy(self) -> bool:
@@ -964,6 +1011,70 @@ class DesktopController(QObject):
         self._submit("mcp_test", self._test_mcp_connections)
 
     @Slot()
+    def refreshGitHub(self) -> None:
+        if self._busy:
+            self.errorOccurred.emit("请等待当前任务结束后再刷新 GitHub")
+            return
+        self._github_status = "正在读取当前仓库…"
+        self.githubChanged.emit()
+        self._submit("github_refresh", self._load_github)
+
+    @Slot(str)
+    def syncGitHub(self, action: str) -> None:
+        if action not in {"fetch", "pull_ff", "push"}:
+            self.errorOccurred.emit("未知 GitHub 同步操作")
+            return
+        if self._busy:
+            self.errorOccurred.emit("请等待当前任务结束后再同步 GitHub")
+            return
+        self._github_status = f"正在执行 {action}…"
+        self.githubChanged.emit()
+        self._submit("github_write", lambda: self._sync_github(action))
+
+    @Slot(str)
+    def createGitHubBranch(self, name: str) -> None:
+        normalized = name.strip()
+        if not normalized:
+            self.errorOccurred.emit("分支名称不能为空")
+            return
+        self._github_status = f"正在创建分支 {normalized}…"
+        self.githubChanged.emit()
+        self._submit("github_write", lambda: self._create_github_branch(normalized))
+
+    @Slot(str, str, str, bool)
+    def createGitHubPullRequest(self, title: str, body: str, base: str, draft: bool) -> None:
+        if not title.strip():
+            self.errorOccurred.emit("Pull Request 标题不能为空")
+            return
+        self._github_status = "正在创建 Pull Request…"
+        self.githubChanged.emit()
+        self._submit(
+            "github_write",
+            lambda: self._create_github_pr(title.strip(), body, base.strip() or "main", draft),
+        )
+
+    @Slot(str, str)
+    def createGitHubIssue(self, title: str, body: str) -> None:
+        if not title.strip():
+            self.errorOccurred.emit("Issue 标题不能为空")
+            return
+        self._github_status = "正在创建 Issue…"
+        self.githubChanged.emit()
+        self._submit(
+            "github_write",
+            lambda: self._create_github_issue(title.strip(), body),
+        )
+
+    @Slot(int)
+    def rerunGitHubAction(self, run_id: int) -> None:
+        if run_id <= 0:
+            self.errorOccurred.emit("Actions Run ID 无效")
+            return
+        self._github_status = f"正在重新运行 {run_id} 的失败任务…"
+        self.githubChanged.emit()
+        self._submit("github_write", lambda: self._rerun_github_action(run_id))
+
+    @Slot()
     def seedPreview(self, stress: bool = False) -> None:
         self._preview = True
         self.sessions.replace(
@@ -1149,6 +1260,59 @@ class DesktopController(QObject):
         registry = ToolRegistry()
         names = await register_mcp_tools(registry, self._config, self._config.workspace)
         return {"tools": names}
+
+    async def _load_github(self) -> dict[str, object]:
+        service = GitHubService(self._config.workspace)
+        snapshot, pull_requests, issues, actions = await asyncio.gather(
+            asyncio.to_thread(service.snapshot),
+            asyncio.to_thread(service.pull_requests, 20),
+            asyncio.to_thread(service.issues, 20),
+            asyncio.to_thread(service.workflow_runs, 20),
+        )
+        return {
+            "snapshot": snapshot,
+            "pull_requests": pull_requests,
+            "issues": issues,
+            "actions": actions,
+        }
+
+    async def _sync_github(self, action: str) -> dict[str, object]:
+        service = GitHubService(self._config.workspace)
+        operation = {
+            "fetch": service.fetch,
+            "pull_ff": service.pull_ff,
+            "push": service.push,
+        }[action]
+        output = await asyncio.to_thread(operation)
+        return {"message": f"{action} 已完成", "output": output}
+
+    async def _create_github_branch(self, name: str) -> dict[str, object]:
+        output = await asyncio.to_thread(GitHubService(self._config.workspace).create_branch, name)
+        return {"message": f"已创建并切换到分支 {name}", "output": output}
+
+    async def _create_github_pr(
+        self, title: str, body: str, base: str, draft: bool
+    ) -> dict[str, object]:
+        output = await asyncio.to_thread(
+            GitHubService(self._config.workspace).create_pull_request,
+            title=title,
+            body=body,
+            base=base,
+            draft=draft,
+        )
+        return {"message": "Pull Request 已创建", "output": output}
+
+    async def _create_github_issue(self, title: str, body: str) -> dict[str, object]:
+        output = await asyncio.to_thread(
+            GitHubService(self._config.workspace).create_issue,
+            title=title,
+            body=body,
+        )
+        return {"message": "Issue 已创建", "output": output}
+
+    async def _rerun_github_action(self, run_id: int) -> dict[str, object]:
+        output = await asyncio.to_thread(GitHubService(self._config.workspace).rerun_failed, run_id)
+        return {"message": "失败的 Actions Job 已重新运行", "output": output}
 
     async def _install_github_skill(
         self, repository: str, ref: str, skill_path: str
@@ -1413,6 +1577,10 @@ class DesktopController(QObject):
                 self._mcp_status = f"连接失败 · {message}"
                 self.connectionsChanged.emit()
                 self._set_status("MCP 连接测试失败")
+            elif kind.startswith("github_"):
+                self._github_status = f"连接失败 · {message}"
+                self.githubChanged.emit()
+                self._set_status("GitHub 操作失败")
             elif kind == "skill_install":
                 self._set_status("GitHub Skill 安装失败")
             self.errorOccurred.emit(message)
@@ -1534,6 +1702,33 @@ class DesktopController(QObject):
             self._mcp_status = f"连接正常 · 已发现 {count} 个工具"
             self.connectionsChanged.emit()
             self._set_status(self._mcp_status)
+        elif kind == "github_refresh":
+            snapshot = payload.get("snapshot", {})
+            pull_requests = payload.get("pull_requests", [])
+            issues = payload.get("issues", [])
+            actions = payload.get("actions", [])
+            if isinstance(snapshot, dict):
+                self._github_snapshot = snapshot
+            if isinstance(pull_requests, list):
+                self.githubPullRequests.replace(
+                    [_github_pr_item(item) for item in pull_requests if isinstance(item, dict)]
+                )
+            if isinstance(issues, list):
+                self.githubIssues.replace(
+                    [_github_issue_item(item) for item in issues if isinstance(item, dict)]
+                )
+            if isinstance(actions, list):
+                self.githubActions.replace(
+                    [_github_action_item(item) for item in actions if isinstance(item, dict)]
+                )
+            self._github_status = "已连接 · 数据刚刚刷新"
+            self.githubChanged.emit()
+            self._set_status(f"GitHub 已连接 · {self.githubRepository}")
+        elif kind == "github_write":
+            self._github_status = str(payload.get("message", "GitHub 操作完成"))
+            self.githubChanged.emit()
+            self._set_status(self._github_status)
+            self._submit("github_refresh", self._load_github)
         elif kind == "skill_install":
             self._refresh_skills()
             self._set_status(f"Skill {payload.get('id', '')} 已安装并可通过 $ 调用")
@@ -1773,6 +1968,36 @@ def _skill_item(item: SkillSummary) -> dict[str, object]:
         "source": item.source,
         "path": item.path,
         "warning": " · ".join(item.warnings),
+    }
+
+
+def _github_pr_item(item: dict[str, object]) -> dict[str, object]:
+    return {
+        "number": _safe_int(item.get("number")),
+        "title": str(item.get("title", "")),
+        "detail": f"{item.get('headRefName', '')} → {item.get('baseRefName', '')} · "
+        f"{item.get('state', '')}",
+        "url": str(item.get("url", "")),
+    }
+
+
+def _github_issue_item(item: dict[str, object]) -> dict[str, object]:
+    return {
+        "number": _safe_int(item.get("number")),
+        "title": str(item.get("title", "")),
+        "detail": f"{item.get('state', '')} · {item.get('updatedAt', '')}",
+        "url": str(item.get("url", "")),
+    }
+
+
+def _github_action_item(item: dict[str, object]) -> dict[str, object]:
+    conclusion = str(item.get("conclusion") or item.get("status", ""))
+    return {
+        "runId": _safe_int(item.get("databaseId")),
+        "title": str(item.get("displayTitle") or item.get("name", "")),
+        "detail": f"{item.get('headBranch', '')} · {item.get('updatedAt', '')}",
+        "status": conclusion,
+        "url": str(item.get("url", "")),
     }
 
 

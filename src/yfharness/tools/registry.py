@@ -180,6 +180,7 @@ def builtin_tools() -> ToolRegistry:
         WriteFileTool,
     )
     from yfharness.tools.git import GitDiffTool, GitLogTool, GitStatusTool
+    from yfharness.tools.github import github_tools
     from yfharness.tools.patch import ApplyPatchTool
     from yfharness.tools.search import FindFilesTool, SearchTextTool
     from yfharness.tools.shell import RunCommandTool, RunTestsTool
@@ -201,6 +202,7 @@ def builtin_tools() -> ToolRegistry:
         DeletePathTool(),
         RunCommandTool(),
         RunTestsTool(),
+        *github_tools(),
     ):
         registry.register(tool)
     return registry

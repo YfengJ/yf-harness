@@ -153,6 +153,68 @@ def test_desktop_configures_brave_without_persisting_secret(
 
 
 @pytest.mark.desktop
+def test_desktop_refreshes_github_workspace_models(
+    qt_application: QGuiApplication,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("YFH_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("YFH_DATA_DIR", str(tmp_path / "data"))
+
+    class FakeGitHub:
+        def __init__(self, workspace: Path) -> None:
+            assert workspace == tmp_path
+
+        def snapshot(self) -> dict[str, object]:
+            return {
+                "account": "owner",
+                "repository": "owner/private-repo",
+                "visibility": "PRIVATE",
+                "branch": "main",
+                "dirty": False,
+            }
+
+        def pull_requests(self, limit: int) -> list[dict[str, object]]:
+            return [
+                {
+                    "number": 7,
+                    "title": "Improve UI",
+                    "headRefName": "feature",
+                    "baseRefName": "main",
+                    "state": "OPEN",
+                    "url": "https://github.test/pr/7",
+                }
+            ]
+
+        def issues(self, limit: int) -> list[dict[str, object]]:
+            return []
+
+        def workflow_runs(self, limit: int) -> list[dict[str, object]]:
+            return [
+                {
+                    "databaseId": 42,
+                    "displayTitle": "CI",
+                    "headBranch": "main",
+                    "conclusion": "success",
+                }
+            ]
+
+    monkeypatch.setattr("yfharness.desktop.controller.GitHubService", FakeGitHub)
+    controller = DesktopController()
+    controller._config.workspace = tmp_path
+
+    controller.refreshGitHub()
+    _wait_until(lambda: controller.githubConnected)
+
+    assert controller.githubRepository == "owner/private-repo"
+    assert controller.githubVisibility == "PRIVATE"
+    assert controller.githubPullRequests.rowCount() == 1
+    assert _item(controller.githubPullRequests, 0)["number"] == 7
+    assert controller.githubActions.rowCount() == 1
+    controller.shutdown()
+
+
+@pytest.mark.desktop
 def test_desktop_can_switch_configured_model_in_existing_session(
     qt_application: QGuiApplication,
     tmp_path: Path,
