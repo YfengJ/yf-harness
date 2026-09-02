@@ -91,6 +91,10 @@ def main() -> None:
                     "sessionTitle",
                     "sidebarSettings",
                     "attachmentButton",
+                    "composerModeSelect",
+                    "composerModelSelect",
+                    "composerGoalButton",
+                    "composerContextButton",
                     "sendButton",
                 ):
                     pending = [window.contentItem()]

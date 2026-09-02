@@ -388,6 +388,10 @@ def test_desktop_qml_smoke_starts_without_runtime_errors(tmp_path: Path) -> None
             "commandCenter",
             "sidebarSettings",
             "attachmentButton",
+            "composerModeSelect",
+            "composerModelSelect",
+            "composerGoalButton",
+            "composerContextButton",
             "sendButton",
             "sessionTitle",
             "taskStatusBar",
@@ -536,6 +540,10 @@ def test_desktop_qml_keeps_composer_inside_responsive_window(
         "sessionTitle",
         "sidebarSettings",
         "attachmentButton",
+        "composerModeSelect",
+        "composerModelSelect",
+        "composerGoalButton",
+        "composerContextButton",
         "sendButton",
     }
     assert expected_items <= set(payload["items"])

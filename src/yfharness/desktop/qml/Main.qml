@@ -313,6 +313,58 @@ ApplicationWindow {
         }
     }
 
+    component ComposerAction: Rectangle {
+        id: composerAction
+        property string glyph: ""
+        property string label: ""
+        property bool active: false
+        property string tooltip: ""
+        signal clicked()
+        implicitWidth: Math.min(actionRow.implicitWidth + 22, 150)
+        implicitHeight: 34
+        radius: 8
+        color: active ? root.accentSoft
+                      : (actionMouse.containsMouse ? root.surfaceSoft : "transparent")
+        border.width: activeFocus || active ? 1 : 0
+        border.color: activeFocus || active ? root.accent : "transparent"
+        activeFocusOnTab: true
+        clip: true
+        Row {
+            id: actionRow
+            anchors.centerIn: parent
+            spacing: 7
+            Text {
+                text: composerAction.glyph
+                color: composerAction.active ? root.accent : root.textMuted
+                font.pixelSize: 12
+                font.weight: Font.DemiBold
+                anchors.verticalCenter: parent.verticalCenter
+            }
+            Text {
+                text: composerAction.label
+                width: Math.min(implicitWidth, 112)
+                color: composerAction.active ? root.accent : root.textSecondary
+                font.pixelSize: 10
+                font.weight: Font.DemiBold
+                elide: Text.ElideRight
+                anchors.verticalCenter: parent.verticalCenter
+            }
+        }
+        MouseArea {
+            id: actionMouse
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onPressed: composerAction.forceActiveFocus()
+            onClicked: composerAction.clicked()
+        }
+        Keys.onSpacePressed: clicked()
+        Keys.onReturnPressed: clicked()
+        ToolTip.visible: actionMouse.containsMouse && tooltip.length > 0
+        ToolTip.text: tooltip
+        Behavior on color { ColorAnimation { duration: 110 } }
+    }
+
     Shortcut {
         sequences: [StandardKey.New]
         onActivated: controller.newSession()
@@ -340,6 +392,18 @@ ApplicationWindow {
             root.commandOpen = true
             commandCenter.open()
         }
+    }
+    Shortcut {
+        sequences: ["Ctrl+P", "Meta+P"]
+        onActivated: modeSelect.popup.open()
+    }
+    Shortcut {
+        sequences: ["Ctrl+M", "Meta+M"]
+        onActivated: modelSelect.popup.open()
+    }
+    Shortcut {
+        sequences: ["Ctrl+G", "Meta+G"]
+        onActivated: goalPopup.open()
     }
 
     Connections {
@@ -1156,6 +1220,43 @@ ApplicationWindow {
                                 tooltip: "添加图片或文件"
                                 onClicked: attachmentMenu.open()
                             }
+                            ControlSelect {
+                                id: modeSelect
+                                objectName: "composerModeSelect"
+                                Layout.preferredWidth: 102
+                                implicitHeight: 34
+                                model: ["agent", "plan", "chat", "review"]
+                                currentIndex: 0
+                                ToolTip.visible: hovered
+                                ToolTip.text: "运行模式  ·  ⌘P"
+                            }
+                            ControlSelect {
+                                id: modelSelect
+                                objectName: "composerModelSelect"
+                                Layout.preferredWidth: Math.min(176, Math.max(132, composer.width * 0.2))
+                                implicitHeight: 34
+                                ToolTip.visible: hovered
+                                ToolTip.text: controller ? controller.modelDescription(currentText) + "  ·  ⌘M" : "模型"
+                            }
+                            ComposerAction {
+                                objectName: "composerGoalButton"
+                                glyph: "◎"
+                                label: controller && controller.hasActiveGoal ? "目标进行中" : "目标"
+                                active: controller ? controller.hasActiveGoal : false
+                                tooltip: controller && controller.hasActiveGoal
+                                         ? controller.currentGoal : "设置持久目标  ·  ⌘G"
+                                onClicked: goalPopup.open()
+                            }
+                            ComposerAction {
+                                objectName: "composerContextButton"
+                                glyph: "◔"
+                                label: controller && controller.contextBudget > 0
+                                       ? Math.round(controller.contextUsageRatio * 100) + "% 上下文"
+                                       : "上下文"
+                                active: controller ? controller.contextUsageRatio >= 0.8 : false
+                                tooltip: controller ? controller.contextSummary : "查看上下文"
+                                onClicked: root.openInspector(1)
+                            }
                             Item { Layout.fillWidth: true }
                             QuietButton {
                                 objectName: "sendButton"
@@ -1466,7 +1567,16 @@ ApplicationWindow {
                                 }
                             }
                             Text { Layout.topMargin: 14; text: "模型"; color: root.textMuted; font.pixelSize: 9; font.letterSpacing: 0.8 }
-                            ControlSelect { id: modelSelect; Layout.fillWidth: true; Layout.topMargin: 7 }
+                            Text {
+                                Layout.fillWidth: true
+                                Layout.topMargin: 7
+                                text: modelSelect.currentText.length > 0
+                                      ? modelSelect.currentText + "  ·  可在输入框直接切换"
+                                      : "当前 Provider 没有可用模型"
+                                color: root.textSecondary
+                                font.pixelSize: 10
+                                elide: Text.ElideRight
+                            }
                             Text { Layout.topMargin: 14; text: "工作流"; color: root.textMuted; font.pixelSize: 9; font.letterSpacing: 0.8 }
                             ControlSelect {
                                 id: workflowSelect
@@ -1488,12 +1598,12 @@ ApplicationWindow {
                                 wrapMode: Text.Wrap
                             }
                             Text { Layout.topMargin: 14; text: "运行模式"; color: root.textMuted; font.pixelSize: 9; font.letterSpacing: 0.8 }
-                            ControlSelect {
-                                id: modeSelect
+                            Text {
                                 Layout.fillWidth: true
                                 Layout.topMargin: 7
-                                model: ["agent", "chat", "plan", "review"]
-                                currentIndex: 0
+                                text: modeSelect.currentText + "  ·  可在输入框直接切换"
+                                color: root.textSecondary
+                                font.pixelSize: 10
                             }
                             Text { Layout.topMargin: 14; text: "权限策略"; color: root.textMuted; font.pixelSize: 9; font.letterSpacing: 0.8 }
                             ControlSelect {
