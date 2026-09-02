@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from yfharness.core.exceptions import PolicyDeniedError
 from yfharness.core.skill_install import create_project_skill, install_local_skill
 from yfharness.core.skills import SkillCatalog
 
@@ -87,6 +88,28 @@ def test_import_rejects_a_symlinked_skill_root(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="符号链接"):
         install_local_skill(workspace, link)
+
+
+def test_import_rejects_a_symlinked_destination_root(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "SKILL.md").write_text(
+        "---\nname: linked\ndescription: Linked\n---\nInspect",
+        encoding="utf-8",
+    )
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    try:
+        (workspace / ".agents").symlink_to(outside, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlinks are unavailable")
+
+    with pytest.raises(PolicyDeniedError, match="workspace"):
+        install_local_skill(workspace, source)
+
+    assert not (outside / "skills").exists()
 
 
 @pytest.mark.parametrize(

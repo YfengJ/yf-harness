@@ -244,7 +244,7 @@ class GitHubService:
 
 def _repository_from_remote(value: str) -> str | None:
     remote = value.strip().removesuffix(".git")
-    for prefix in ("https://github.com/", "http://github.com/", "ssh://git@github.com/"):
+    for prefix in ("https://github.com/", "ssh://git@github.com/"):
         if remote.startswith(prefix):
             candidate = remote[len(prefix) :]
             return candidate if _REPOSITORY.fullmatch(candidate) else None

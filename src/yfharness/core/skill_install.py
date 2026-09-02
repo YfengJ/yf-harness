@@ -12,7 +12,7 @@ from pydantic import Field
 
 from yfharness.core.models import DomainModel
 from yfharness.core.skills import SkillCatalog, SkillSummary
-from yfharness.tools.security import github_cli_environment, resolve_executable
+from yfharness.tools.security import WorkspaceGuard, github_cli_environment, resolve_executable
 
 _NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$")
 _REPOSITORY_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
@@ -68,7 +68,7 @@ def install_local_skill(workspace: Path, source: Path) -> SkillInstallResult:
         raise ValueError("请选择包含 SKILL.md 的普通文件夹")
     files = _validate_tree(source)
     summary = _validate_catalog(source)
-    destination_root = workspace.resolve(strict=True) / ".agents" / "skills"
+    destination_root = WorkspaceGuard(workspace).resolve(".agents/skills")
     destination = destination_root / summary.name
     if destination.exists():
         raise FileExistsError(f"Skill 已存在：{summary.name}；请先重命名或移除旧版本")

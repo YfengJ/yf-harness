@@ -19,6 +19,7 @@ from yfharness.tools.security import WorkspaceGuard, github_cli_environment
         ("https://github.com/owner/repo.git", "owner/repo"),
         ("git@github.com:owner/repo.git", "owner/repo"),
         ("ssh://git@github.com/owner/repo", "owner/repo"),
+        ("http://github.com/owner/repo.git", None),
         ("https://gitlab.com/owner/repo.git", None),
     ],
 )
