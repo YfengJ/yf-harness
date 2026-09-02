@@ -2,13 +2,13 @@
 
 工具由名称、描述、Pydantic 输入 Schema、风险等级、只读标志和异步执行函数组成。注册表拒绝未知工具，Executor 依次完成参数验证、模式/权限决策、审批、workspace 校验、执行、输出截断与变更记录。
 
-内置 15 个工具覆盖目录、读文件、文本搜索、文件查找、文件信息、Git status/diff/log、创建、写入、严格 unified patch、移动、删除、命令与测试。文件写入使用临时文件和原子替换；变更记录保留撤销所需内容。Shell 默认参数数组，字符串解释器必须显式启用；同时限制环境、时长、输出并终止进程组。
+内置 25 个工具覆盖目录、读文件、文本搜索、文件查找、文件信息、Git status/diff/log、创建、写入、严格 unified patch、移动、删除、命令与测试，以及当前仓库的 GitHub 状态、PR、Issue、Actions、同步与受限写操作。文件写入使用临时文件和原子替换；变更记录保留撤销所需内容。Shell 默认参数数组，字符串解释器必须显式启用；同时限制环境、时长、输出并终止进程组。
 
 Provider 原生 Tool Calling 会被增量组装成规范化调用；不支持原生能力时使用严格 JSON。两条路径在进入注册表前合流。执行后的 `ToolResult` 包含成功标志、结构化内容、stdout/stderr、退出码、截断与错误信息，并带调用 ID 回传模型，使模型能基于真实结果继续。
 
 权限档位与模式共同决定结果：只读模式不能被较宽权限绕过，删除和 Shell 始终要求审批，`full_auto` 默认整体禁用。审批展示工具、参数、命令、路径与可用 Diff，允许一次、会话内同类、拒绝或取消。
 
-0.5 增加 Workflow Profile 和 MCP stdio 适配。Profile 同时过滤模型可见工具与真实执行；Hook 只能收紧基础 Policy。MCP 工具映射到隔离名称，不信任服务端 annotation，默认按高风险非只读工具审批。详细契约见 [WORKFLOWS_MCP.md](WORKFLOWS_MCP.md)。
+0.5 增加 Workflow Profile 和 MCP stdio 适配。Profile 同时过滤模型可见工具与真实执行；Hook 只能收紧基础 Policy。MCP 工具映射到隔离名称，不信任服务端 annotation，默认按高风险非只读工具审批；0.12 增加本地逐工具覆盖和 Brave Search 预设。GitHub 读工具仍受网络审批，写工具始终审批，并刻意不提供强推、删除、合并或仓库设置。详细契约见 [WORKFLOWS_MCP.md](WORKFLOWS_MCP.md)。
 
 降级格式另见 [FALLBACK_TOOL_PROTOCOL.md](FALLBACK_TOOL_PROTOCOL.md)，信任边界另见 [SECURITY_MODEL.md](SECURITY_MODEL.md)。
 

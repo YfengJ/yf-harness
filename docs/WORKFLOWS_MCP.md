@@ -12,11 +12,32 @@ HTTP 或模型，避免将新执行面伪装成配置。
 文件魔数、大小与 SHA-256；发送时再次校验。`local_only` 不进入 Provider payload，
 `remote_model` 需要用户显式选择，且模型配置必须声明 `supports_image_input = true`。
 
-MCP 首版支持 stdio initialize、`tools/list` 分页和 `tools/call`。服务默认 `enabled = false`；
+MCP 支持 stdio initialize、`tools/list` 分页和 `tools/call`。服务默认 `enabled = false`；
 启用表示允许启动该本地进程做发现，不代表自动允许工具调用。工具名映射为
-`mcp__<server>__<tool>`，allow 后 deny，参数按服务 Schema 验证，所有工具都按高风险、
-非只读、必须审批处理。服务声明的 annotation 不能降低本地风险；子进程只获得
-基础安全环境与 `env_keys` 显式列出的变量。
+`mcp__<server>__<tool>`，allow 后 deny，参数按服务 Schema 验证。未知工具默认高风险、非只读、
+必须审批；可信预设可在本地配置逐工具 `read_only`、风险和审批策略，服务端 annotation 不能降低
+本地风险。子进程只获得基础安全环境与 `env_keys` 显式列出的变量。
+
+桌面“工具与连接”提供固定版本的 Brave Search MCP 预设，只暴露网页搜索、新闻搜索与 LLM 上下文
+搜索。`BRAVE_API_KEY` 优先从进程环境读取，否则从系统钥匙串读取；保存的托管配置只包含命令、允许
+工具和环境变量名。首次网络调用仍需要审批，可选择仅本次或本会话允许。未配置真实 Key 时可以保存
+配置，但不能完成在线搜索。
+
+自定义 stdio MCP 只接受进程参数和环境变量名，不在配置中保存密钥值。可在 TOML 中逐工具声明：
+
+```toml
+[mcp_servers.docs]
+command = ["node", "server.js"]
+enabled = true
+enabled_tools = ["search"]
+env_keys = ["DOCS_API_KEY"]
+
+[mcp_servers.docs.tool_overrides.search]
+read_only = true
+risk_level = "medium"
+always_approval = true
+network = true
+```
 
 项目插件只从 `.yfh/plugins/*/plugin.json` 静态发现 schema version 1 manifest。状态始终是
 `review_required`；仅列出 rules/skill/command/MCP/Hook 能力和请求权限，不加载代码、

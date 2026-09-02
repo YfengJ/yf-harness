@@ -1,5 +1,16 @@
 # 发现与决策
 
+## 阶段 21：Composer 控制、工具连接、Skills 与 GitHub（2026-09-02）
+
+- 用户要求模型与模式继续位于输入框内，因此 Composer 底栏作为“本次运行控制面”，而 Provider、Workflow 和权限仍留在高级设置，避免重复配置源。
+- 联网搜索选择 MCP 而非在核心中硬编码搜索 API：Brave 预设限制可见工具，自定义 stdio 保留扩展性；两者都复用 ToolExecutor 的 Schema、模式、Workflow 与审批边界。
+- Brave API Key 不应进入 TOML、托管 JSON、数据库或仓库。桌面写入系统钥匙串，运行时环境变量优先，托管 JSON 只保存非密钥命令和环境变量名。
+- MCP 服务端 annotation 属于不可信输入，默认不能降权；逐工具只允许由本地配置覆盖风险。Brave 预设的搜索工具标为只读网络工具，首次或策略要求时仍审批。
+- Skills 安装不是插件执行：只复制并校验目录，禁止符号链接、超限和覆盖，scripts/assets 不自动运行；成功后必须经同一个 SkillCatalog 发现和显式 `$source:name` 调用。
+- GitHub 以当前 workspace 的 origin 作为能力边界，拒绝非 `github.com` 远端；读操作与写操作分层，写工具 always-approval，且刻意不实现 force push、删除、merge 或 settings。
+- 真实验证已经覆盖 Brave MCP initialize/tools-list、私密 GitHub Skill 安装和当前私密仓库状态读取；没有真实 Brave Key 时不能声称已经完成在线搜索查询。
+- 安全审查定位到两个边界问题：导入 Skill 根目录符号链接在 resolve 后无法识别；GitHub CLI 环境缺少 HOME 会把状态写到 workspace。两者均已修复并有负向测试。
+
 ## 阶段 20：桌面对话减法与统一附件入口（2026-09-01）
 
 - 真实截图中的首屏说明区由一个大标题、长副标题和三条编号行组成，信息重复且纵向占用过高；用户希望改为一句话，因此不应通过缩字号保留原结构，而应直接删除三条行。

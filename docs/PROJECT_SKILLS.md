@@ -32,6 +32,17 @@ yfh run --skill codex:review-changes "检查当前修改"
 兼容 `$ARGUMENTS`、`${ARGUMENTS}` 和 `$1` 至 `$9` 的纯文本替换。替换不会调用 Shell，也不会解析
 命令替换语法。
 
+## 创建与安装
+
+桌面端从 Composer 的 `+` 或命令中心打开“Skills 管理”：
+
+- “新建”在当前 workspace 的 `.agents/skills/<name>/SKILL.md` 创建模板，并立即进入统一目录校验。
+- “导入本地”复制一个包含 `SKILL.md` 的普通文件夹；拒绝符号链接、超过 200 个文件、单文件超过 1 MiB 或总计超过 5 MiB。
+- “从 GitHub 安装”复用已登录的 GitHub CLI，浅克隆指定仓库与 ref 后只复制指定 Skill 路径；支持当前账户可访问的私密仓库。
+
+三种路径都不会覆盖同名目标。成功后 Skill 会立刻出现在列表中，选择它会向 Composer 插入完整
+`$source:name` 调用 ID，无需重启 App。GitHub 仓库内容仍视为不可信输入。
+
 ## 安全边界
 
 - Skill 内容视为工作区不可信指令，不能覆盖系统提示、模式、Workflow、Policy 或审批结果。

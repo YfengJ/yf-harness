@@ -1953,7 +1953,7 @@ ApplicationWindow {
                 Text {
                     Layout.fillWidth: true
                     Layout.topMargin: 10
-                    text: "YF-Harness 0.11.0 · Local first"
+                    text: "YF-Harness 0.12.0 · Local first"
                     color: root.textMuted
                     font.pixelSize: 9
                     horizontalAlignment: Text.AlignHCenter

@@ -1,6 +1,6 @@
 # 桌面应用
 
-YF-Harness 0.10 将 Qt Quick 桌面窗口作为主要交互入口。它不是网页壳，也不需要先打开终端窗口；
+YF-Harness 0.12 将 Qt Quick 桌面窗口作为主要交互入口。它不是网页壳，也不需要先打开终端窗口；
 打包后的 `YF-Harness.app` 包含 Python、Qt 与项目运行时，可以从 Finder 双击启动。
 
 ## 直接运行源码
@@ -26,7 +26,7 @@ workspace 和安全策略继续读取同一套 YF-Harness 配置。
 ```
 
 脚本会锁定并安装 `desktop-build` extra，使用 Qt 官方 `pyside6-deploy` / Nuitka 生成
-`dist/YF-Harness.app`，写入应用名、`local.yfharness.desktop` Bundle Identifier 和 0.11.0 版本，
+`dist/YF-Harness.app`，写入应用名、`local.yfharness.desktop` Bundle Identifier 和 0.12.0 版本，
 再执行 ad-hoc 签名、Plist 校验与 LaunchServices 启动 smoke。
 
 0.9 构建继续显式排除未使用的 WebEngine、Quick3D、Charts、Sensors 与 Test 顶层二进制，
@@ -50,6 +50,15 @@ Developer ID Application 证书重新签名，并提交 Apple notarization。项
 - 新会话记录所属 workspace；桌面和 TUI 只列出当前项目会话，避免跨项目误执行。
 - `Esc` 优先取消当前运行，空闲时关闭控制台；`⌘/Ctrl+N` 新建任务，`⌘/Ctrl+Enter` 发送，`Ctrl+.` 打开或收起控制台。
 - `⌘/Ctrl+K` 打开命令中心；键盘上下选择、Enter 执行，搜索结果会跳过被过滤的动作。
+
+## 0.12 Composer、工具与连接
+
+- **Composer 控制：** 模型和 Agent/Plan 模式位于输入框底栏；Goal 和上下文概览也在同一操作带内，完整 Provider、Workflow 与权限保留在高级设置。
+- **联网搜索：** 在“工具与连接”启用 Brave Search，API Key 写入系统钥匙串；也可由启动 App 的环境提供 `BRAVE_API_KEY`。点击“测试连接”会实际启动 MCP 并发现工具，真正搜索时继续走网络审批。
+- **自定义 MCP：** 只支持显式命令、参数和环境变量名的 stdio 服务。界面保存非密钥配置，密钥值必须来自环境或系统凭据库。
+- **Skills：** “Skills 管理”可创建项目 Skill、导入普通文件夹，或通过现有 `gh` 登录从 GitHub 安装。安装位置为当前项目 `.agents/skills`；安装过程不运行脚本，也不会覆盖同名目录。
+- **GitHub：** “GitHub 工作区”只读取当前项目的 `github.com` origin，并复用系统 `gh auth`。可查看 PR、Issue、Actions、私密性和同步状态；写操作范围限于普通 push、仅快进 pull、建分支、创建 PR/Issue、评论和重跑失败任务。
+- **权限：** 模型发起的 GitHub 写操作始终弹出审批；没有强推、删除分支、合并 PR 或修改仓库设置的工具。
 
 ## 0.7 精密编辑台
 

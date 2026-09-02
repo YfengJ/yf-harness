@@ -19,7 +19,7 @@ LlamaIndex 和 AutoGen 通过可选、惰性加载的适配层接入，既保留
 - OpenAICompatibleProvider：可配置 `base_url`、模型、超时、有限重试和 SSE/JSON 响应。
 - Chat / Plan / Agent / Review 四模式共享同一状态机。
 - Balanced / Plan / Guarded 版本化 Workflow，可组合模式、审批、工具可见性与声明式 Hook。
-- 15 个真实工具；Pydantic 参数校验、审批策略、Diff 预览、原子写入和 `/undo`。
+- 25 个真实工具；覆盖本地文件、Shell、Git 及受限 GitHub 工作区，并统一使用 Schema、审批和 Diff 预览。
 - 路径穿越与符号链接逃逸防护；Shell 超时、进程组终止、输出限制和环境脱敏。
 - SQLite 会话、运行、消息、模型事件、工具、审批、用量、上下文和文件变更记录。
 - PySide6 + Qt Quick 原生桌面 App：安静的对话画布、轻量 Composer、设置抽屉与 `⌘K` 命令中心。
@@ -37,7 +37,7 @@ LlamaIndex 和 AutoGen 通过可选、惰性加载的适配层接入，既保留
 - 当前会话、今日、本月的本地 Token/成本账本与可选额度；估算值和未知成本明确标记。
 - 轮转文本/JSONL 日志、Trace、只读 Replay 和 20 类离线 Eval。
 - LangChain、LlamaIndex、AutoGen 真实 Agent API 集成；支持离线 Mock 和现有 OpenAI-compatible 配置。
-- MCP stdio 工具使用名称隔离、环境白名单和现有审批链；项目插件只静态发现。
+- Brave Search 与自定义 MCP stdio 工具使用名称隔离、环境白名单和现有审批链；项目插件只静态发现。
 
 ## 截图
 
@@ -124,13 +124,13 @@ open dist/YF-Harness.app
 `YF-Harness.app`。不需要先启动终端，也不需要 API Key；默认 MockProvider 可以直接体验完整界面。
 首次打开后点击左下角当前项目右侧的箭头切换工作区；App 会在本机配置目录记住这个选择，下次双击自动恢复。
 
-Composer 只保留统一附件 `+`、多行输入与发送，避免把模型、额度和上下文统计塞进对话区。点击左下角
-“设置与用量”可选择 Provider、模型、工作流、模式和权限，并查看本地用量；上下文与变更各有独立标签。
+Composer 保留统一附件 `+`、多行输入，并把高频模型、Agent/Plan 模式、Goal、上下文概览和发送
+集中在输入框底栏。点击左下角“设置与用量”可管理 Provider、Workflow、权限和本地用量；上下文与变更各有独立标签。
 输入框仍支持 `/goal <目标>`、`/goal done` 和 `/goal clear`。活动 Goal 会跟随会话保存并注入后续运行，
 但不会自动执行任务、扩大工具权限或跳过审批。
 
 按 `⌘K`（Windows/Linux 为 `Ctrl+K`）可打开命令中心，统一进入新任务、Plan、Goal、文件变更、
-上下文、项目技能和工作区切换。1040px 起的窗口会自动收缩长标题，检查器以覆盖式抽屉打开，
+上下文、工具与连接、Skills、GitHub 和工作区切换。1040px 起的窗口会自动收缩长标题，检查器以覆盖式抽屉打开，
 不会再挤压消息和输入区域。
 
 “设置与用量”面板和命令中心“用量与额度”展示本机保存的会话、今日和本月 Token/成本统计；它不是
@@ -144,7 +144,8 @@ yfh sessions compact <session-id>
 
 ## 项目技能与 `$` 命令面板
 
-桌面输入框键入 `$` 会打开技能面板，支持键盘上下选择、Enter/Tab 插入，也可鼠标点击。当前兼容：
+桌面输入框键入 `$` 会打开技能面板，支持键盘上下选择、Enter/Tab 插入，也可鼠标点击。“Skills 管理”
+还能新建项目 Skill、导入本地文件夹，或复用 `gh` 登录从 GitHub（含有权访问的私密仓库）安装。当前兼容：
 
 - `.yfh/skills/*/SKILL.md`
 - `.agents/skills/*/SKILL.md`
@@ -241,6 +242,18 @@ yfh config path
 只有加上 `--send-images` 才会把验证后的图片内容发送给声明
 `supports_image_input = true` 的兼容模型。Workflow、MCP 和插件契约见
 [`docs/WORKFLOWS_MCP.md`](docs/WORKFLOWS_MCP.md)。
+
+## 联网搜索、Skills 与 GitHub
+
+桌面端从 Composer 的 `+`、命令中心或左下角“工具与连接”进入集成管理：
+
+- Brave Search 通过固定版本的官方 MCP server 接入；API Key 保存到系统钥匙串，也可使用 `BRAVE_API_KEY` 环境变量。点击“测试连接”先验证工具发现，真正联网时仍显示网络审批。
+- 自定义 MCP 只保存 stdio 命令、参数和环境变量名，不保存密钥值；未知工具默认高风险并要求审批。
+- Skills 安装到当前 workspace 的 `.agents/skills`，拒绝符号链接、超限目录和覆盖，附带脚本不会自动执行。
+- GitHub 复用系统已有的 `gh auth`，只连接当前 workspace 的 `github.com` origin。可查看 PR、Issue、Actions 和私密性，也可执行普通 push、仅快进 pull、创建分支/PR/Issue、评论及重跑失败任务。
+
+模型可以正常调用这些工具，但仍受当前 Mode、Workflow、权限策略、人工审批和 workspace 边界共同
+限制。GitHub 写工具始终审批；系统不提供强推、删除分支、合并 PR 或修改仓库设置的工具。
 
 ## 高级 Agent 框架
 

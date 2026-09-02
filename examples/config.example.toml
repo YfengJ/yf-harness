@@ -53,7 +53,7 @@ tools = ["git_*"]
 action = "observe"
 message = "Git 审查工具已完成。"
 
-# 仅 enabled=true 才会启动 stdio 进程做工具发现；实际调用仍强制审批。
+# 仅 enabled=true 才会启动 stdio 进程做工具发现；未知工具默认仍按高风险审批。
 [mcp_servers.local_example]
 command = ["python", "path/to/server.py"]
 enabled = false
@@ -62,3 +62,10 @@ disabled_tools = []
 env_keys = []
 startup_timeout = 10
 tool_timeout = 60
+
+# 仅对你信任并已核对语义的具体工具设置本地覆盖；服务端 annotation 不会自动降权。
+[mcp_servers.local_example.tool_overrides.search]
+read_only = true
+risk_level = "medium"
+always_approval = true
+network = true
