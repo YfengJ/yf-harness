@@ -215,55 +215,6 @@ ApplicationWindow {
         Behavior on color { ColorAnimation { duration: 100 } }
     }
 
-    component ComposerChip: Rectangle {
-        id: composerChip
-        property string label: ""
-        property string glyph: ""
-        property bool selected: false
-        property int maximumLabelWidth: 132
-        signal clicked()
-        implicitWidth: chipRow.implicitWidth + 20
-        implicitHeight: 32
-        radius: 8
-        color: selected ? root.accentSoft : (chipMouse.containsMouse ? root.raised : "transparent")
-        border.width: activeFocus ? 2 : 1
-        border.color: activeFocus || selected ? root.accent : root.line
-        activeFocusOnTab: true
-        Row {
-            id: chipRow
-            anchors.centerIn: parent
-            spacing: 6
-            Text {
-                text: composerChip.glyph
-                color: composerChip.selected ? root.accent : root.textMuted
-                font.pixelSize: 11
-                font.weight: Font.DemiBold
-                anchors.verticalCenter: parent.verticalCenter
-            }
-            Text {
-                text: composerChip.label
-                width: Math.min(implicitWidth, composerChip.maximumLabelWidth)
-                color: composerChip.selected ? root.textPrimary : root.textSecondary
-                font.pixelSize: 10
-                font.weight: Font.Medium
-                elide: Text.ElideRight
-                anchors.verticalCenter: parent.verticalCenter
-            }
-        }
-        MouseArea {
-            id: chipMouse
-            anchors.fill: parent
-            hoverEnabled: true
-            cursorShape: Qt.PointingHandCursor
-            onPressed: composerChip.forceActiveFocus()
-            onClicked: composerChip.clicked()
-        }
-        Keys.onSpacePressed: clicked()
-        Keys.onReturnPressed: clicked()
-        Behavior on color { ColorAnimation { duration: 110 } }
-        Behavior on border.color { ColorAnimation { duration: 110 } }
-    }
-
     component MetaPill: Rectangle {
         id: metaPill
         property string label: ""
@@ -637,15 +588,49 @@ ApplicationWindow {
                             elide: Text.ElideMiddle
                         }
                     }
+                    ToolButton {
+                        glyph: "↗"
+                        tooltip: "切换项目"
+                        onDark: true
+                        enabled: controller ? !controller.busy : false
+                        onClicked: projectFolderDialog.open()
+                    }
                 }
-                QuietButton {
+                Rectangle {
+                    id: sidebarSettings
+                    objectName: "sidebarSettings"
                     Layout.fillWidth: true
-                    Layout.topMargin: 8
-                    label: "切换项目"
-                    glyph: "↗"
-                    onDark: true
-                    enabled: controller ? !controller.busy : false
-                    onClicked: projectFolderDialog.open()
+                    Layout.topMargin: 10
+                    Layout.preferredHeight: 46
+                    radius: 8
+                    color: settingsMouse.containsMouse ? root.navSoft : "transparent"
+                    border.width: 1
+                    border.color: settingsMouse.containsMouse ? "#3A587A" : "#294563"
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: 10
+                        anchors.rightMargin: 10
+                        spacing: 10
+                        Text { text: "⚙"; color: root.navMuted; font.pixelSize: 15 }
+                        Column {
+                            Layout.fillWidth: true
+                            spacing: 2
+                            Text { text: "设置与用量"; color: root.navText; font.pixelSize: 10; font.weight: Font.Medium }
+                            Text { text: "模型 · 模式 · 上下文"; color: root.navMuted; font.pixelSize: 8 }
+                        }
+                        Text { text: "›"; color: root.navMuted; font.pixelSize: 16 }
+                    }
+                    MouseArea {
+                        id: settingsMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            root.openInspector(0)
+                            controller.refreshUsage()
+                        }
+                    }
+                    Behavior on color { ColorAnimation { duration: 120 } }
                 }
             }
         }
@@ -864,93 +849,25 @@ ApplicationWindow {
                         }
                     }
 
-                    Column {
+                    Item {
                         id: taskEmptyState
+                        objectName: "taskEmptyState"
                         visible: conversation.count === 0
                         anchors.centerIn: parent
-                        width: Math.min(700, parent.width - 96)
-                        spacing: 0
+                        width: Math.min(620, parent.width - 96)
+                        height: emptyPrompt.implicitHeight
                         opacity: 0
-                        transform: Translate { id: emptyTranslate; y: 18 }
+                        transform: Translate { id: emptyTranslate; y: 10 }
                         Text {
+                            id: emptyPrompt
+                            anchors.centerIn: parent
                             width: parent.width
-                            text: "LOCAL WORKBENCH / 01"
-                            color: root.accent
-                            font.pixelSize: 9
-                            font.weight: Font.DemiBold
-                            font.letterSpacing: 1.8
-                        }
-                        Text {
-                            width: parent.width
-                            topPadding: 14
-                            text: "从任务出发，\n把每一步做扎实。"
+                            text: "想做什么？直接说一句就好。"
                             color: root.textPrimary
-                            font.pixelSize: 34
+                            font.pixelSize: 24
                             font.weight: Font.DemiBold
-                            lineHeight: 1.05
+                            horizontalAlignment: Text.AlignHCenter
                             wrapMode: Text.Wrap
-                        }
-                        Text {
-                            width: Math.min(540, parent.width)
-                            topPadding: 16
-                            bottomPadding: 28
-                            text: "描述目标，或按 ⌘K 打开命令中心。YF-Harness 会在本地安全边界内规划、执行并留下可审阅证据。"
-                            color: root.textSecondary
-                            font.pixelSize: 12
-                            lineHeight: 1.45
-                            wrapMode: Text.Wrap
-                        }
-                        Hairline { width: parent.width }
-                        Column {
-                            width: parent.width
-                            Repeater {
-                                model: [
-                                    ["01", "理解这个项目", "扫描结构、规则与关键入口"],
-                                    ["02", "规划一次改动", "先给出可审阅的实施路径"],
-                                    ["03", "检查当前风险", "审查变更、边界与验证缺口"]
-                                ]
-                                Rectangle {
-                                    required property var modelData
-                                    width: parent.width
-                                    height: 54
-                                    color: suggestionMouse.containsMouse ? root.surfaceSoft : "transparent"
-                                    RowLayout {
-                                        anchors.fill: parent
-                                        anchors.leftMargin: 2
-                                        anchors.rightMargin: 4
-                                        spacing: 14
-                                        Text {
-                                            text: modelData[0]
-                                            color: root.textMuted
-                                            font.pixelSize: 8
-                                            font.letterSpacing: 1.0
-                                        }
-                                        ColumnLayout {
-                                            Layout.fillWidth: true
-                                            spacing: 2
-                                            Text { text: modelData[1]; color: root.textPrimary; font.pixelSize: 11; font.weight: Font.Medium }
-                                            Text { text: modelData[2]; color: root.textMuted; font.pixelSize: 9 }
-                                        }
-                                        Text {
-                                            text: "↗"
-                                            color: suggestionMouse.containsMouse ? root.accent : root.textMuted
-                                            font.pixelSize: 13
-                                        }
-                                    }
-                                    MouseArea {
-                                        id: suggestionMouse
-                                        anchors.fill: parent
-                                        hoverEnabled: true
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: {
-                                            promptInput.text = modelData[1]
-                                            promptInput.forceActiveFocus()
-                                        }
-                                    }
-                                    Hairline { anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom }
-                                    Behavior on color { ColorAnimation { duration: 100 } }
-                                }
-                            }
                         }
                         Component.onCompleted: emptyEntrance.start()
                         ParallelAnimation {
@@ -1116,7 +1033,7 @@ ApplicationWindow {
                     Layout.leftMargin: Math.max(24, (workspace.width - 900) / 2)
                     Layout.rightMargin: Math.max(24, (workspace.width - 900) / 2)
                     Layout.bottomMargin: 20
-                    Layout.preferredHeight: controller && controller.attachmentCount > 0 ? 196 : 166
+                    Layout.preferredHeight: controller && controller.attachmentCount > 0 ? 154 : 124
                     radius: 18
                     color: root.surface
                     border.width: 1
@@ -1230,112 +1147,16 @@ ApplicationWindow {
                         RowLayout {
                             objectName: "composerActions"
                             Layout.fillWidth: true
-                            Layout.preferredHeight: 30
+                            Layout.preferredHeight: 32
                             spacing: 7
-                            Text {
-                                text: "任务状态"
-                                color: root.textMuted
-                                font.pixelSize: 9
-                                font.weight: Font.DemiBold
-                                font.letterSpacing: 0.7
-                            }
-                            ComposerChip {
-                                objectName: "composerGoal"
-                                glyph: controller && controller.hasActiveGoal ? "◎" : "○"
-                                label: controller && controller.currentGoal.length > 0
-                                       ? controller.currentGoal : "设置目标"
-                                maximumLabelWidth: Math.max(90, Math.min(260, workspace.width - 560))
-                                selected: controller ? controller.hasActiveGoal : false
-                                onClicked: goalPopup.open()
-                            }
-                            ComposerChip {
-                                objectName: "composerContext"
-                                glyph: "◔"
-                                label: controller && controller.contextBudget > 0
-                                       ? Math.round(controller.contextUsageRatio * 100) + "% · "
-                                         + controller.contextSourceCount + " 来源"
-                                       : "上下文待刷新"
-                                selected: controller ? controller.contextUsageRatio >= 0.8 : false
-                                onClicked: contextPopup.open()
-                            }
-                            Text {
-                                visible: controller ? controller.queueCount > 0 : false
-                                text: "队列 " + (controller ? controller.queueCount : 0)
-                                color: root.textSecondary
-                                font.pixelSize: 9
-                            }
-                            Item { Layout.fillWidth: true }
-                            Text {
-                                text: controller && controller.busy ? "运行中" : "本地安全执行"
-                                color: controller && controller.busy ? root.accent : root.success
-                                font.pixelSize: 9
-                                font.weight: Font.Medium
-                            }
-                        }
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 7
-                            QuietButton {
-                                visible: workspace.width >= 560
-                                label: "图片"
+                            ToolButton {
+                                id: attachmentButton
+                                objectName: "attachmentButton"
                                 glyph: "+"
-                                onClicked: imageDialog.open()
-                            }
-                            Switch {
-                                id: sendImageSwitch
-                                visible: workspace.width >= 960
-                                text: "允许上传原图"
-                                checked: false
-                                font.pixelSize: 10
-                                palette.text: root.textSecondary
-                                ToolTip.visible: hovered
-                                ToolTip.text: checked
-                                              ? "所选图片将发送给远程模型"
-                                              : "默认仅在本地记录，不上传图片内容"
-                            }
-                            ComposerChip {
-                                objectName: "composerMode"
-                                glyph: modeSelect.currentText === "plan" ? "◇" : "◆"
-                                label: modeSelect.currentText === "plan" ? "Plan" : "Agent"
-                                selected: modeSelect.currentText === "plan"
-                                onClicked: {
-                                    if (modeSelect.currentText === "plan") {
-                                        root.selectValue(workflowSelect, controller.defaultWorkflow)
-                                        root.selectValue(modeSelect,
-                                                         controller.workflowMode(workflowSelect.currentText))
-                                        root.selectValue(permissionSelect,
-                                                         controller.workflowPermissions(workflowSelect.currentText))
-                                    } else {
-                                        root.selectValue(workflowSelect, "plan")
-                                        root.selectValue(modeSelect, "plan")
-                                        root.selectValue(permissionSelect, "deny_writes")
-                                    }
-                                }
-                            }
-                            ControlSelect {
-                                id: composerModelSelect
-                                objectName: "composerModel"
-                                Layout.preferredWidth: workspace.width >= 780 ? 160 : 124
-                                implicitHeight: 32
-                                model: modelSelect.model
-                                currentIndex: modelSelect.currentIndex
-                                onActivated: root.selectValue(modelSelect, currentText)
-                                ToolTip.visible: hovered
-                                ToolTip.text: controller ? controller.modelDescription(currentText) : ""
-                            }
-                            ComposerChip {
-                                objectName: "composerCommand"
-                                glyph: "⌘"
-                                label: "命令"
-                                onClicked: commandCenter.open()
+                                tooltip: "添加图片或文件"
+                                onClicked: attachmentMenu.open()
                             }
                             Item { Layout.fillWidth: true }
-                            Text {
-                                visible: workspace.width >= 900
-                                text: "⌘↵ 发送"
-                                color: root.textMuted
-                                font.pixelSize: 8
-                            }
                             QuietButton {
                                 objectName: "sendButton"
                                 label: controller && controller.busy ? "排队" : "发送"
@@ -1343,6 +1164,19 @@ ApplicationWindow {
                                 prominent: true
                                 enabled: controller ? promptInput.text.trim().length > 0 : false
                                 onClicked: root.sendCurrentPrompt()
+                            }
+                            Menu {
+                                id: attachmentMenu
+                                y: -height - 8
+                                width: 176
+                                MenuItem {
+                                    text: "添加图片"
+                                    onTriggered: imageDialog.open()
+                                }
+                                MenuItem {
+                                    text: "添加文件"
+                                    onTriggered: fileDialog.open()
+                                }
                             }
                         }
 
@@ -1443,93 +1277,6 @@ ApplicationWindow {
                             }
                         }
 
-                        Item {
-                            Layout.preferredWidth: 0
-                            Layout.preferredHeight: 0
-                            Popup {
-                                id: contextPopup
-                            parent: Overlay.overlay
-                            x: Math.max(20, (root.width - width) / 2)
-                            y: root.height - height - 170
-                            width: 330
-                            padding: 14
-                            closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-                            background: Rectangle {
-                                radius: 12
-                                color: root.surface
-                                border.color: root.lineStrong
-                                border.width: 1
-                            }
-                                contentItem: ColumnLayout {
-                                spacing: 10
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    Text {
-                                        text: "上下文概览"
-                                        color: root.textPrimary
-                                        font.pixelSize: 13
-                                        font.weight: Font.DemiBold
-                                    }
-                                    Item { Layout.fillWidth: true }
-                                    Text {
-                                        text: controller && controller.contextCompacted ? "已压缩" : "LOCAL"
-                                        color: controller && controller.contextCompacted
-                                               ? root.accent : root.textMuted
-                                        font.pixelSize: 8
-                                        font.letterSpacing: 0.8
-                                    }
-                                }
-                                Text {
-                                    Layout.fillWidth: true
-                                    text: controller ? controller.contextSummary : "待刷新"
-                                    color: root.textSecondary
-                                    font.pixelSize: 11
-                                }
-                                Rectangle {
-                                    Layout.fillWidth: true
-                                    Layout.preferredHeight: 5
-                                    radius: 3
-                                    color: root.line
-                                    Rectangle {
-                                        width: parent.width * Math.min(1, controller
-                                                                      ? controller.contextUsageRatio : 0)
-                                        height: parent.height
-                                        radius: parent.radius
-                                        color: controller && controller.contextUsageRatio >= 0.8
-                                               ? root.accent : root.success
-                                        Behavior on width { NumberAnimation { duration: 220 } }
-                                    }
-                                }
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    Text {
-                                        text: (controller ? controller.contextSourceCount : 0) + " 个来源"
-                                        color: root.textMuted
-                                        font.pixelSize: 9
-                                    }
-                                    Item { Layout.fillWidth: true }
-                                    Text {
-                                        text: controller && controller.contextBudget > 0
-                                              ? "剩余 " + Math.max(0, controller.contextBudget
-                                                                   - controller.contextTokens).toLocaleString()
-                                              : "运行后刷新"
-                                        color: root.textMuted
-                                        font.pixelSize: 9
-                                    }
-                                }
-                                QuietButton {
-                                    Layout.fillWidth: true
-                                    label: "查看上下文来源"
-                                    glyph: "↗"
-                                    onClicked: {
-                                        contextPopup.close()
-                                        root.inspectorTab = 1
-                                        root.inspectorOpen = true
-                                    }
-                                }
-                                }
-                            }
-                        }
                     }
                     Behavior on border.color { ColorAnimation { duration: 150 } }
                 }
@@ -1573,7 +1320,7 @@ ApplicationWindow {
                 RowLayout {
                     Layout.fillWidth: true
                     Text {
-                        text: "控制台"
+                        text: "设置与用量"
                         color: root.textPrimary
                         font.pixelSize: 13
                         font.weight: Font.DemiBold
@@ -1587,7 +1334,7 @@ ApplicationWindow {
                     }
                     ToolButton {
                         glyph: "×"
-                        tooltip: "关闭控制台"
+                        tooltip: "关闭设置"
                         onClicked: root.inspectorOpen = false
                     }
                 }
@@ -1597,7 +1344,7 @@ ApplicationWindow {
                     Layout.topMargin: 14
                     spacing: 3
                     Repeater {
-                        model: ["运行", "上下文", "变更"]
+                        model: ["设置", "上下文", "变更"]
                         Rectangle {
                             required property string modelData
                             required property int index
@@ -1755,6 +1502,19 @@ ApplicationWindow {
                                 Layout.topMargin: 7
                                 model: ["safe_auto", "always_ask", "deny_writes"]
                                 currentIndex: 0
+                            }
+                            Switch {
+                                id: sendImageSwitch
+                                Layout.fillWidth: true
+                                Layout.topMargin: 16
+                                text: "允许把所选图片发送给远程模型"
+                                checked: false
+                                font.pixelSize: 10
+                                palette.text: root.textSecondary
+                                ToolTip.visible: hovered
+                                ToolTip.text: checked
+                                              ? "新选择的图片会在发送前再次校验"
+                                              : "默认仅在本地记录图片，不上传内容"
                             }
 
                             Rectangle {
@@ -2013,7 +1773,7 @@ ApplicationWindow {
                 Text {
                     Layout.fillWidth: true
                     Layout.topMargin: 10
-                    text: "YF-Harness 0.10.1 · Local first"
+                    text: "YF-Harness 0.11.0 · Local first"
                     color: root.textMuted
                     font.pixelSize: 9
                     horizontalAlignment: Text.AlignHCenter
@@ -2245,8 +2005,26 @@ ApplicationWindow {
     FileDialog {
         id: imageDialog
         title: "选择项目内的图片"
+        fileMode: FileDialog.OpenFiles
         nameFilters: ["Images (*.png *.jpg *.jpeg *.gif *.webp)"]
-        onAccepted: controller.addImage(selectedFile.toString(), sendImageSwitch.checked)
+        onAccepted: {
+            for (var index = 0; index < selectedFiles.length; index++)
+                controller.addImage(selectedFiles[index].toString(), sendImageSwitch.checked)
+        }
+    }
+
+    FileDialog {
+        id: fileDialog
+        title: "选择项目内的文件"
+        fileMode: FileDialog.OpenFiles
+        nameFilters: [
+            "文本与代码 (*.txt *.md *.py *.js *.ts *.tsx *.jsx *.json *.toml *.yaml *.yml *.xml *.html *.css *.csv *.log *.ini *.cfg *.sh)",
+            "所有文件 (*)"
+        ]
+        onAccepted: {
+            for (var index = 0; index < selectedFiles.length; index++)
+                controller.addFile(selectedFiles[index].toString())
+        }
     }
 
     FolderDialog {

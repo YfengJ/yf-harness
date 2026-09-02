@@ -229,6 +229,42 @@ def test_desktop_image_attachment_keeps_transfer_choice_explicit(
 
 
 @pytest.mark.desktop
+def test_desktop_file_attachment_is_real_bounded_context(
+    qt_application: QGuiApplication,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("YFH_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("YFH_DATA_DIR", str(tmp_path / "data"))
+    controller = DesktopController()
+    controller._config.workspace = tmp_path
+    notes = tmp_path / "notes.md"
+    notes.write_text("桌面附件必须进入真实上下文", encoding="utf-8")
+
+    controller.addFile(notes.as_uri())
+
+    assert controller.attachmentCount == 1
+    assert _item(controller.attachments, 0)["transfer"] == "作为上下文"
+    controller.sendMessage(
+        "总结附件",
+        "mock",
+        "mock-default",
+        "balanced",
+        "agent",
+        "safe_auto",
+    )
+    _wait_until(lambda: not controller.busy and bool(controller.currentSessionId))
+
+    assert controller.attachmentCount == 0
+    assert any(
+        _item(controller.instructions, row)["source"] == "attachment"
+        and _item(controller.instructions, row)["path"] == "notes.md"
+        for row in range(controller.instructions.rowCount())
+    )
+    controller.shutdown()
+
+
+@pytest.mark.desktop
 def test_desktop_discovers_filters_and_runs_explicit_project_skill(
     qt_application: QGuiApplication,
     tmp_path: Path,
@@ -350,15 +386,26 @@ def test_desktop_qml_smoke_starts_without_runtime_errors(tmp_path: Path) -> None
         f'objectName: "{name}"' in qml
         for name in (
             "commandCenter",
-            "composerMode",
-            "composerGoal",
-            "composerModel",
-            "composerContext",
-            "composerCommand",
+            "sidebarSettings",
+            "attachmentButton",
             "sendButton",
             "sessionTitle",
             "taskStatusBar",
             "composerActions",
+            "taskEmptyState",
+        )
+    )
+    assert "想做什么？直接说一句就好。" in qml
+    assert all(removed not in qml for removed in ("理解这个项目", "规划一次改动", "检查当前风险"))
+    assert all(
+        contract in qml
+        for contract in (
+            "id: attachmentMenu",
+            'text: "添加图片"',
+            'text: "添加文件"',
+            "fileMode: FileDialog.OpenFiles",
+            "controller.addImage(",
+            "controller.addFile(",
         )
     )
 
@@ -487,11 +534,8 @@ def test_desktop_qml_keeps_composer_inside_responsive_window(
         "taskStatusBar",
         "composerActions",
         "sessionTitle",
-        "composerMode",
-        "composerGoal",
-        "composerModel",
-        "composerContext",
-        "composerCommand",
+        "sidebarSettings",
+        "attachmentButton",
         "sendButton",
     }
     assert expected_items <= set(payload["items"])

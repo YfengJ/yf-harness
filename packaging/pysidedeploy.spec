@@ -25,7 +25,7 @@ plugins =
 [nuitka]
 macos.permissions =
 mode = standalone
-extra_args = --quiet --disable-cache=ccache --noinclude-qt-translations --include-package=yfharness --include-package-data=yfharness.desktop --macos-app-version=0.10.1 --macos-app-name=YF-Harness --macos-app-mode=gui --noinclude-dlls=Qt3D* --noinclude-dlls=QtCharts* --noinclude-dlls=QtDataVisualization* --noinclude-dlls=QtGraphs* --noinclude-dlls=QtLocation* --noinclude-dlls=QtMultimedia* --noinclude-dlls=QtPdf* --noinclude-dlls=QtPositioning* --noinclude-dlls=QtQuick3D* --noinclude-dlls=QtRemoteObjects* --noinclude-dlls=QtScxml* --noinclude-dlls=QtSensors* --noinclude-dlls=QtTest* --noinclude-dlls=QtTextToSpeech* --noinclude-dlls=QtWebChannel* --noinclude-dlls=QtWebEngine* --noinclude-dlls=QtWebSockets* --noinclude-dlls=QtWebView*
+extra_args = --quiet --disable-cache=ccache --noinclude-qt-translations --include-package=yfharness --include-package-data=yfharness.desktop --macos-app-version=0.11.0 --macos-app-name=YF-Harness --macos-app-mode=gui --noinclude-dlls=Qt3D* --noinclude-dlls=QtCharts* --noinclude-dlls=QtDataVisualization* --noinclude-dlls=QtGraphs* --noinclude-dlls=QtLocation* --noinclude-dlls=QtMultimedia* --noinclude-dlls=QtPdf* --noinclude-dlls=QtPositioning* --noinclude-dlls=QtQuick3D* --noinclude-dlls=QtRemoteObjects* --noinclude-dlls=QtScxml* --noinclude-dlls=QtSensors* --noinclude-dlls=QtTest* --noinclude-dlls=QtTextToSpeech* --noinclude-dlls=QtWebChannel* --noinclude-dlls=QtWebEngine* --noinclude-dlls=QtWebSockets* --noinclude-dlls=QtWebView*
 
 [buildozer]
 mode = debug

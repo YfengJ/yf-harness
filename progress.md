@@ -2,10 +2,33 @@
 
 ## 当前状态
 
-- 当前阶段：阶段 19（DeepSeek 真实 API 纵向验收与凭据安全，已完成）
-- 整体状态：0.10.1 已完成 DeepSeek 实机验收、缺陷修复、凭据审计、App 打包、私密发布与跨平台 CI
+- 当前阶段：阶段 20（桌面对话减法与统一附件入口，已完成）
+- 整体状态：0.11.0 已完成对话减法、设置/用量迁移、统一图片/文件附件、全量回归与 macOS App 构建
 - 初始仓库：空目录、非 Git 仓库
 - 当前风险：P1（安全边界、子进程、持久化、CLI/TUI 公共契约）
+
+## 阶段 20：桌面对话减法与统一附件入口（2026-09-01）
+
+- 用户截图显示空会话中的三条“理解项目 / 规划改动 / 检查风险”占据大量画布，但没有直接操作价值；目标改为只留一句短引导。
+- 用户明确要求额度与设置不再常驻 Composer；计划迁至左下角统一入口，在独立面板中承载模型、模式、上下文、额度和其他设置。
+- 附件入口统一为 `+`，必须同时支持图片和普通文件，且不仅是视觉按钮：要有选择、列表、移除和真实运行时接入。
+- 起点 `main` 干净，Change Radar P3/0；涉及附件安全与上下文协议，人工风险按 P1 管理。
+- 契约审计确认原有图片附件已经具备 workspace、大小、魔数、哈希与显式远程发送边界；普通 `FILE` 类型虽然存在，但 Provider 会忽略，不能直接复用为“上传文件”。
+- 已新增 UTF-8 普通文件附件：选择时限制 200 KB、拒绝二进制/非 UTF-8/工作区外路径并记录哈希，运行前再次校验，再通过 `ContextBuilder.add()` 进入真实上下文。
+- QML 已删除三条空状态说明和 Composer 中的 Goal/上下文/模型/模式/命令控件，只保留一句引导、附件清单、统一 `+` 与发送；左下角新增“设置与用量”入口，原功能迁至独立面板。
+- 第一轮 Ruff 通过；桌面专项 14 passed。命令带 `-m desktop` 导致附件单元测试被过滤，需单独运行，不视为测试通过证据。
+- 补跑附件单元与 CLI 集成共 20 passed；空状态和设置面板的 1280×800 实际 QML 截图均成功，布局报告包含 10 个关键对象且全部 `within_window=true`。
+- 视觉复核确认空会话只显示“想做什么？直接说一句就好。”，Composer 只剩 `+` 和发送；左下角入口可见，设置面板内的用量、模型、工作流、模式与上下文不再挤占主输入区。
+- 首次扩展静态门中 Ruff check 通过，但 format check 指出 Controller 三元表达式与桌面测试断言两处需机械重排，因此命令在 mypy/pytest 前停止；按工具建议格式化这两个文件后从头重跑。
+- 格式修复后 Ruff/format 通过；核心 mypy 因环境只同步了 dev+desktop、缺少三个可选框架依赖而报 18 个 import/subclass 错误并停止。需增加锁定 `frameworks` extra 后重跑，不能把未安装依赖错误归为源码回归。
+- 完整环境下 Ruff/format、核心 mypy 68 文件、桌面 mypy 3 文件、178 项全量测试全部通过，覆盖率 83.49%。随后 `yfh eval --output` 被误传为已存在的临时文件，但该参数要求目录，触发 `FileExistsError`，因此 Eval/构建/smoke 尚未执行；改用新临时目录从 Eval 续跑。
+- Eval 改用目录后 20/20，0.11.0 sdist/wheel 与桌面 smoke 通过。首次隔离安装使用系统 pip 时被本机 CA 链的 `CERTIFICATE_VERIFY_FAILED` 阻止，wheel 未安装；不降低 TLS，改用项目的 uv 安装器和新隔离环境。
+- uv 隔离环境成功安装并报告 0.11.0；首次 Mock smoke 断言错误地读取顶层 `status`，而当前 JSON 公共结构不含该键，验证脚本 `KeyError`。需检查真实键并按现有契约修正断言，不能据此修改产品输出。
+- 隔离 wheel 最终以 `session_id=ephemeral` 等真实 JSON 契约完成 Mock smoke。首次 App 构建调用了不存在的 `packaging/build_macos_app.sh`，命令立即退出且无副作用；需按仓库实际脚本名执行。
+- 最终本地质量门：Ruff/format、核心 mypy 68 文件、桌面 mypy 3 文件、178 passed、83.49% 覆盖率、Eval 20/20、0.11.0 sdist/wheel、uv 隔离安装/Mock smoke 全部通过。
+- `scripts/build_macos_app.sh` 已生成 236 MiB 的 `dist/YF-Harness.app`；Plist 0.11.0、深度签名、启动 smoke、关键布局和 Bundle 凭据模式扫描通过。最终 Bundle 空状态与设置面板截图均完成视觉复核。
+- 最终 Change Radar P1/40、无 blocking gap；review-changes 发现并修复文件哈希校验与 ContextBuilder 二次读取间的 TOCTOU，修复后 33 项相关测试及最终 QML 契约 smoke 通过。
+- 本轮没有收到推送授权，所有改动和 0.11.0 产物保留在本地工作区，未上传 GitHub。
 
 ## 已完成
 

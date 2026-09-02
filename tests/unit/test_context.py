@@ -133,6 +133,29 @@ def test_attachment_cannot_escape_workspace(tmp_path: Path) -> None:
         builder.add("../secret")
 
 
+def test_verified_file_context_uses_exact_validated_text_without_reopening(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "notes.txt"
+    path.write_text("validated content", encoding="utf-8")
+    builder = ContextBuilder(tmp_path, len)
+    builder.add_verified_file("notes.txt", "validated content")
+    path.write_text("changed after validation", encoding="utf-8")
+
+    snapshot = builder.build(
+        user_input="summarize the attachment",
+        history=[],
+        mode=AgentMode.PLAN,
+        tools=[],
+        model=model(context_window=8_000),
+        native_tools=True,
+    )
+
+    combined = "\n".join(message.text_content for message in snapshot.messages)
+    assert "validated content" in combined
+    assert "changed after validation" not in combined
+
+
 def test_structured_compaction_preserves_constraints_files_tests_and_next_step() -> None:
     messages = [
         Message.text(

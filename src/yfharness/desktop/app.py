@@ -27,6 +27,7 @@ def main() -> None:
     parser.add_argument("--width", type=int)
     parser.add_argument("--height", type=int)
     parser.add_argument("--stress-preview", action="store_true")
+    parser.add_argument("--empty-preview", action="store_true")
     parser.add_argument("--preview-command", action="store_true")
     parser.add_argument("--layout-report")
     args, qt_args = parser.parse_known_args()
@@ -47,6 +48,8 @@ def main() -> None:
     controller = DesktopController()
     if args.screenshot:
         controller.seedPreview(stress=args.stress_preview)
+        if args.empty_preview:
+            controller.newSession()
     engine = QQmlApplicationEngine()
     engine.rootContext().setContextProperty("controller", controller)
     engine.load(QUrl.fromLocalFile(str(root / "qml" / "Main.qml")))
@@ -86,11 +89,8 @@ def main() -> None:
                     "taskStatusBar",
                     "composerActions",
                     "sessionTitle",
-                    "composerMode",
-                    "composerGoal",
-                    "composerModel",
-                    "composerContext",
-                    "composerCommand",
+                    "sidebarSettings",
+                    "attachmentButton",
                     "sendButton",
                 ):
                     pending = [window.contentItem()]

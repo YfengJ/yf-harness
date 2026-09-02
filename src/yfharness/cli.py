@@ -26,7 +26,7 @@ from yfharness.core.agent_events import (
     ToolExecutionFinished,
     ToolExecutionStarted,
 )
-from yfharness.core.attachments import prepare_image
+from yfharness.core.attachments import file_context, prepare_image
 from yfharness.core.compaction import CompactionSummary
 from yfharness.core.context import ContextBuilder
 from yfharness.core.events import TextDelta
@@ -35,6 +35,7 @@ from yfharness.core.models import (
     ApprovalDecision,
     ApprovalRequest,
     ContentPart,
+    ContentPartType,
     HealthStatus,
     Message,
     MessageRole,
@@ -366,10 +367,14 @@ async def _run_once(
     changes = ChangeJournal(guard)
     tool_registry = builtin_tools()
     mcp_tools = await register_mcp_tools(tool_registry, config, guard.root)
-    attachments = list(attachment_parts or [])
-    attachments.extend(
+    supplied_parts = list(attachment_parts or [])
+    supplied_parts.extend(
         prepare_image(path, guard, send_to_model=send_images) for path in image_paths or []
     )
+    file_parts = [part for part in supplied_parts if part.type is ContentPartType.FILE]
+    attachments = [part for part in supplied_parts if part.type is ContentPartType.IMAGE]
+    if len(file_parts) + len(attachments) != len(supplied_parts):
+        raise ValueError("attachment_parts 仅支持图片或普通文件")
     skill_reference = parse_skill_reference(prompt) if skill_name is None else None
     if skill_reference is not None:
         skill_name, parsed_arguments = skill_reference
@@ -517,6 +522,9 @@ async def _run_once(
     )
     context_builder = ContextBuilder(config.workspace, provider.estimate_tokens)
     context_builder.previous_summary = restored_summary
+    for file_part in file_parts:
+        relative, text = file_context(file_part, guard)
+        context_builder.add_verified_file(relative, text)
     runner = AgentRunner(
         provider=provider,
         model=model_config,

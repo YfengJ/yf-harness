@@ -40,10 +40,16 @@ from yfharness.core.agent_events import (
     ToolExecutionFinished,
     ToolExecutionStarted,
 )
-from yfharness.core.attachments import prepare_image
+from yfharness.core.attachments import prepare_file, prepare_image
 from yfharness.core.context import ContextBuilder
 from yfharness.core.events import TextDelta
-from yfharness.core.models import ApprovalDecision, ApprovalRequest, ContentPart, MessageRole
+from yfharness.core.models import (
+    ApprovalDecision,
+    ApprovalRequest,
+    ContentPart,
+    ContentPartType,
+    MessageRole,
+)
 from yfharness.core.policies import AgentMode, ApprovalPolicy
 from yfharness.core.review import ChangeReviewItem, WorkspaceReview
 from yfharness.core.skills import SkillCatalog, SkillSummary
@@ -417,6 +423,20 @@ class DesktopController(QObject):
         self._set_status(f"已附加 {Path(part.path or '').name} · {boundary}")
 
     @Slot(str)
+    def addFile(self, value: str) -> None:
+        url = QUrl(value)
+        local_path = url.toLocalFile() if url.isLocalFile() else value
+        try:
+            part = prepare_file(local_path, WorkspaceGuard(self._config.workspace))
+        except Exception as exc:
+            self.errorOccurred.emit(str(exc))
+            return
+        attachment_id = str(uuid4())
+        self._pending_attachments.append((attachment_id, part))
+        self._refresh_attachments()
+        self._set_status(f"已附加 {Path(part.path or '').name} · 作为本地上下文")
+
+    @Slot(str)
     def removeAttachment(self, attachment_id: str) -> None:
         self._pending_attachments = [
             item for item in self._pending_attachments if item[0] != attachment_id
@@ -664,7 +684,7 @@ class DesktopController(QObject):
                 "queueId": queued.id,
                 "prompt": prompt,
                 "detail": f"{model} · {workflow} · {mode.value}"
-                + (f" · {len(attachments)} 张图片" if attachments else ""),
+                + (f" · {len(attachments)} 个附件" if attachments else ""),
             }
         )
         self.queueChanged.emit()
@@ -1390,7 +1410,9 @@ class DesktopController(QObject):
                     "mimeType": part.mime_type or "",
                     "size": part.size_bytes or 0,
                     "transfer": (
-                        "发送给模型" if part.transfer.value == "remote_model" else "仅本地"
+                        "作为上下文"
+                        if part.type is ContentPartType.FILE
+                        else ("发送给模型" if part.transfer.value == "remote_model" else "仅本地")
                     ),
                 }
                 for attachment_id, part in self._pending_attachments

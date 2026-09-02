@@ -100,6 +100,16 @@ class ContextBuilder:
         self.attachments[relative] = self._attachment_text(resolved)
         return relative
 
+    def add_verified_file(self, path: str, text: str) -> str:
+        """Attach already verified text without reopening a mutable file."""
+
+        resolved = self.guard.resolve(path, must_exist=True)
+        if not resolved.is_file():
+            raise ValueError("verified attachment must be a file")
+        relative = self.guard.relative(resolved)
+        self.attachments[relative] = truncate_output(text, self.read_limit)[0]
+        return relative
+
     def remove(self, path: str) -> bool:
         return self.attachments.pop(path, None) is not None
 
