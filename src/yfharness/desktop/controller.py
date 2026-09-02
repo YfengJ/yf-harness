@@ -773,12 +773,22 @@ class DesktopController(QObject):
         self._set_status("正在取消")
 
     @Slot(str, bool)
-    def resolveApproval(self, request_id: str, allowed: bool) -> None:
+    @Slot(str, str)
+    def resolveApproval(self, request_id: str, decision: bool | str) -> None:
         with self._approval_lock:
             pending = self._pending_approvals.get(request_id)
         if pending is None:
             return
-        pending.decision = ApprovalDecision.ALLOW_ONCE if allowed else ApprovalDecision.DENY
+        if isinstance(decision, bool):
+            pending.decision = (
+                ApprovalDecision.ALLOW_ONCE if decision else ApprovalDecision.DENY
+            )
+        else:
+            try:
+                pending.decision = ApprovalDecision(decision)
+            except ValueError:
+                self.errorOccurred.emit("未知审批决定")
+                return
         pending.event.set()
 
     @Slot()

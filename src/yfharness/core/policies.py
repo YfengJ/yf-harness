@@ -47,12 +47,12 @@ def decide_tool_access(
         return PolicyAction.DENY
     if always_approval:
         return PolicyAction.ASK
+    if tool_name in session_allowed_tools:
+        return PolicyAction.ALLOW
     if policy is ApprovalPolicy.ALWAYS_ASK:
         return PolicyAction.ASK
     if policy is ApprovalPolicy.FULL_AUTO:
         return PolicyAction.ALLOW if full_auto_enabled else PolicyAction.DENY
-    if policy is ApprovalPolicy.SESSION_ALLOW and tool_name in session_allowed_tools:
-        return PolicyAction.ALLOW
     if read_only and risk_level is ToolRiskLevel.LOW:
         return PolicyAction.ALLOW
     return PolicyAction.ASK

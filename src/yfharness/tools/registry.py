@@ -129,6 +129,7 @@ class ToolExecutor:
                 paths=preview.paths,
                 command=preview.command,
                 diff_preview=preview.diff,
+                network=preview.network,
             )
             decision = await self.approval_handler(request)
             if decision is ApprovalDecision.ALLOW_SESSION:

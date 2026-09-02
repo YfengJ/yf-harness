@@ -418,7 +418,17 @@ ApplicationWindow {
             root.approvalId = request.id
             approvalTitle.text = request.tool_call.name + " 请求执行"
             approvalRisk.text = "风险等级  ·  " + request.risk_level
-            approvalDetails.text = JSON.stringify(request.tool_call.arguments, null, 2)
+                                + (request.network ? "  ·  将访问网络" : "")
+            var sections = []
+            if (request.paths && request.paths.length > 0)
+                sections.push("访问路径\n" + request.paths.join("\n"))
+            if (request.command)
+                sections.push("执行命令\n" + (Array.isArray(request.command)
+                              ? request.command.join(" ") : request.command))
+            sections.push("参数\n" + JSON.stringify(request.tool_call.arguments, null, 2))
+            if (request.diff_preview)
+                sections.push("变更预览\n" + request.diff_preview)
+            approvalDetails.text = sections.join("\n\n")
             approvalDialog.open()
         }
         function onCurrentSessionChanged() {
@@ -2203,7 +2213,21 @@ ApplicationWindow {
                 QuietButton {
                     label: "拒绝"
                     onClicked: {
-                        controller.resolveApproval(root.approvalId, false)
+                        controller.resolveApproval(root.approvalId, "deny")
+                        approvalDialog.close()
+                    }
+                }
+                QuietButton {
+                    label: "取消运行"
+                    onClicked: {
+                        controller.resolveApproval(root.approvalId, "cancel_run")
+                        approvalDialog.close()
+                    }
+                }
+                QuietButton {
+                    label: "本会话允许"
+                    onClicked: {
+                        controller.resolveApproval(root.approvalId, "allow_session")
                         approvalDialog.close()
                     }
                 }
@@ -2211,7 +2235,7 @@ ApplicationWindow {
                     label: "允许一次"
                     prominent: true
                     onClicked: {
-                        controller.resolveApproval(root.approvalId, true)
+                        controller.resolveApproval(root.approvalId, "allow_once")
                         approvalDialog.close()
                     }
                 }

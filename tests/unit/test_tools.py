@@ -90,6 +90,51 @@ async def test_write_preview_and_undo(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_allow_session_applies_without_weakening_forced_approval(tmp_path: Path) -> None:
+    approvals: list[str] = []
+
+    async def approve_for_session(request: ApprovalRequest) -> ApprovalDecision:
+        approvals.append(request.tool_call.id)
+        return ApprovalDecision.ALLOW_SESSION
+
+    executor = ToolExecutor(
+        builtin_tools(), make_context(tmp_path), approval_handler=approve_for_session
+    )
+    await executor.execute(
+        ToolCall(
+            id="first-write",
+            name="write_file",
+            arguments={"path": "first.txt", "content": "first"},
+        )
+    )
+    await executor.execute(
+        ToolCall(
+            id="second-write",
+            name="write_file",
+            arguments={"path": "second.txt", "content": "second"},
+        )
+    )
+
+    assert approvals == ["first-write"]
+    assert (tmp_path / "second.txt").read_text(encoding="utf-8") == "second"
+
+    forced: list[str] = []
+
+    async def count_forced(request: ApprovalRequest) -> ApprovalDecision:
+        forced.append(request.tool_call.id)
+        return ApprovalDecision.ALLOW_SESSION
+
+    forced_executor = ToolExecutor(
+        builtin_tools(), make_context(tmp_path), approval_handler=count_forced
+    )
+    for call_id, path in (("delete-one", "first.txt"), ("delete-two", "second.txt")):
+        await forced_executor.execute(
+            ToolCall(id=call_id, name="delete_path", arguments={"path": path})
+        )
+    assert forced == ["delete-one", "delete-two"]
+
+
+@pytest.mark.asyncio
 async def test_move_overwrite_can_restore_both_files(tmp_path: Path) -> None:
     source = tmp_path / "source.txt"
     destination = tmp_path / "destination.txt"
@@ -230,6 +275,7 @@ async def test_network_command_is_critical_and_requires_approval(tmp_path: Path)
             )
         )
     assert seen[0].risk_level is ToolRiskLevel.CRITICAL
+    assert seen[0].network is True
 
 
 @pytest.mark.asyncio

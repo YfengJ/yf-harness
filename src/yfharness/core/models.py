@@ -215,6 +215,7 @@ class ApprovalRequest(DomainModel):
     paths: list[str] = Field(default_factory=list)
     command: list[str] | str | None = None
     diff_preview: str | None = None
+    network: bool = False
     decision: ApprovalDecision | None = None
 
 
