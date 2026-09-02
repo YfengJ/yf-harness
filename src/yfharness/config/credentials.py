@@ -6,7 +6,7 @@ import os
 from collections.abc import Mapping
 
 import keyring
-from keyring.errors import KeyringError
+from keyring.errors import KeyringError, NoKeyringError
 
 _SERVICE = "YF-Harness"
 
@@ -27,6 +27,8 @@ class CredentialStore:
             return value
         try:
             return keyring.get_password(_SERVICE, name)
+        except NoKeyringError:
+            return None
         except KeyringError as exc:
             raise CredentialError(f"系统凭据库不可用: {exc}") from exc
 

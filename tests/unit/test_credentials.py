@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from keyring.errors import NoKeyringError
 
 from yfharness.config.credentials import CredentialStore
 
@@ -24,3 +25,14 @@ def test_credentials_write_without_exposing_value(monkeypatch: pytest.MonkeyPatc
     CredentialStore().set("SEARCH_KEY", "secret-value")
 
     assert written == [("YF-Harness", "SEARCH_KEY", "secret-value")]
+
+
+def test_missing_system_keyring_is_treated_as_an_absent_optional_value(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def unavailable(service: str, name: str) -> str | None:
+        raise NoKeyringError("no backend")
+
+    monkeypatch.setattr("keyring.get_password", unavailable)
+
+    assert CredentialStore().get("SEARCH_KEY", environ={}) is None
