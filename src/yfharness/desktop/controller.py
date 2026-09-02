@@ -57,6 +57,11 @@ from yfharness.core.models import (
 )
 from yfharness.core.policies import AgentMode, ApprovalPolicy
 from yfharness.core.review import ChangeReviewItem, WorkspaceReview
+from yfharness.core.skill_install import (
+    create_project_skill,
+    install_github_skill,
+    install_local_skill,
+)
 from yfharness.core.skills import SkillCatalog, SkillSummary
 from yfharness.integrations.mcp import register_mcp_tools
 from yfharness.storage.database import Database
@@ -476,7 +481,8 @@ class DesktopController(QObject):
 
     @Slot(str)
     def filterSkills(self, query: str) -> None:
-        value = query.strip().lstrip("$").split(maxsplit=1)[0].lower()
+        token = query.strip().lstrip("$")
+        value = token.split(maxsplit=1)[0].lower() if token else ""
         matches = [
             item
             for item in self._all_skills
@@ -484,6 +490,51 @@ class DesktopController(QObject):
         ][:8]
         self.skills.replace([_skill_item(item) for item in matches])
         self.skillsChanged.emit()
+
+    @Slot(str, str, str, str)
+    def createProjectSkill(
+        self,
+        name: str,
+        description: str,
+        instructions: str,
+        allowed_tools: str,
+    ) -> None:
+        try:
+            result = create_project_skill(
+                self._config.workspace,
+                name=name,
+                description=description,
+                instructions=instructions,
+                allowed_tools=[item.strip() for item in allowed_tools.split(",") if item.strip()],
+            )
+        except (OSError, ValueError) as exc:
+            self.errorOccurred.emit(str(exc))
+            return
+        self._refresh_skills()
+        self._set_status(f"Skill {result.id} 已创建并可通过 $ 调用")
+
+    @Slot(str)
+    def importProjectSkill(self, value: str) -> None:
+        url = QUrl(value)
+        source = Path(url.toLocalFile() if url.isLocalFile() else value)
+        try:
+            result = install_local_skill(self._config.workspace, source)
+        except (OSError, ValueError) as exc:
+            self.errorOccurred.emit(str(exc))
+            return
+        self._refresh_skills()
+        self._set_status(f"Skill {result.id} 已导入；附带脚本不会自动执行")
+
+    @Slot(str, str, str)
+    def installGitHubSkill(self, repository: str, ref: str, skill_path: str) -> None:
+        if self._busy:
+            self.errorOccurred.emit("请等待当前任务结束后再安装 Skill")
+            return
+        self._set_status("正在从 GitHub 下载并校验 Skill")
+        self._submit(
+            "skill_install",
+            lambda: self._install_github_skill(repository, ref, skill_path),
+        )
 
     @Slot(int, result=str)
     def skillIdAt(self, index: int) -> str:
@@ -1099,6 +1150,18 @@ class DesktopController(QObject):
         names = await register_mcp_tools(registry, self._config, self._config.workspace)
         return {"tools": names}
 
+    async def _install_github_skill(
+        self, repository: str, ref: str, skill_path: str
+    ) -> dict[str, object]:
+        result = await asyncio.to_thread(
+            install_github_skill,
+            self._config.workspace,
+            repository=repository,
+            ref=ref,
+            skill_path=skill_path,
+        )
+        return result.model_dump(mode="json")
+
     async def _load_session(self, session_id: str) -> dict[str, object]:
         database = Database(database_file())
         await database.initialize()
@@ -1350,6 +1413,8 @@ class DesktopController(QObject):
                 self._mcp_status = f"连接失败 · {message}"
                 self.connectionsChanged.emit()
                 self._set_status("MCP 连接测试失败")
+            elif kind == "skill_install":
+                self._set_status("GitHub Skill 安装失败")
             self.errorOccurred.emit(message)
             self._clear_runner()
             return
@@ -1469,6 +1534,9 @@ class DesktopController(QObject):
             self._mcp_status = f"连接正常 · 已发现 {count} 个工具"
             self.connectionsChanged.emit()
             self._set_status(self._mcp_status)
+        elif kind == "skill_install":
+            self._refresh_skills()
+            self._set_status(f"Skill {payload.get('id', '')} 已安装并可通过 $ 调用")
         elif kind == "changes":
             changes = payload.get("changes", [])
             if isinstance(changes, list):

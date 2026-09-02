@@ -38,6 +38,7 @@ ApplicationWindow {
     property bool commandOpen: false
     property bool commandPreviewRequested: false
     property bool connectionsPreviewRequested: false
+    property bool skillsPreviewRequested: false
     onCommandPreviewRequestedChanged: {
         if (commandPreviewRequested)
             Qt.callLater(function() { commandCenter.open() })
@@ -45,6 +46,12 @@ ApplicationWindow {
     onConnectionsPreviewRequestedChanged: {
         if (connectionsPreviewRequested)
             Qt.callLater(function() { connectionsDialog.open() })
+    }
+    onSkillsPreviewRequestedChanged: {
+        if (skillsPreviewRequested) {
+            controller.filterSkills("$")
+            Qt.callLater(function() { skillsDialog.open() })
+        }
     }
 
     function selectValue(combo, value) {
@@ -85,9 +92,8 @@ ApplicationWindow {
             root.openInspector(0)
             controller.refreshUsage()
         } else if (actionId === "skills") {
-            promptInput.text = "$"
             controller.filterSkills("$")
-            Qt.callLater(function() { promptInput.forceActiveFocus() })
+            Qt.callLater(function() { skillsDialog.open() })
         } else if (actionId === "connections") {
             Qt.callLater(function() { connectionsDialog.open() })
         } else if (actionId === "goal") {
@@ -370,6 +376,30 @@ ApplicationWindow {
         ToolTip.visible: actionMouse.containsMouse && tooltip.length > 0
         ToolTip.text: tooltip
         Behavior on color { ColorAnimation { duration: 110 } }
+    }
+
+    component SegmentTab: TabButton {
+        id: segmentTab
+        implicitHeight: 44
+        font.pixelSize: 11
+        contentItem: Text {
+            text: segmentTab.text
+            color: segmentTab.checked ? root.accent : root.textSecondary
+            font.pixelSize: segmentTab.font.pixelSize
+            font.weight: segmentTab.checked ? Font.DemiBold : Font.Medium
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+        }
+        background: Rectangle {
+            color: segmentTab.hovered ? root.surfaceSoft : "transparent"
+            Rectangle {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                height: 2
+                color: segmentTab.checked ? root.accent : "transparent"
+            }
+        }
     }
 
     Shortcut {
@@ -1295,6 +1325,18 @@ ApplicationWindow {
                                     text: "添加文件"
                                     onTriggered: fileDialog.open()
                                 }
+                                MenuSeparator { }
+                                MenuItem {
+                                    text: "管理 Skills"
+                                    onTriggered: {
+                                        controller.filterSkills("$")
+                                        skillsDialog.open()
+                                    }
+                                }
+                                MenuItem {
+                                    text: "工具与连接"
+                                    onTriggered: connectionsDialog.open()
+                                }
                             }
                         }
 
@@ -2039,7 +2081,7 @@ ApplicationWindow {
                     ListElement { actionId: "changes"; glyph: "△"; title: "审查文件变更"; detail: "查看 Diff 并安全撤销文件或整次运行"; shortcut: "R" }
                     ListElement { actionId: "context"; glyph: "◔"; title: "查看上下文"; detail: "检查 Token 预算、规则来源与压缩状态"; shortcut: "C" }
                     ListElement { actionId: "usage"; glyph: "∑"; title: "用量与额度"; detail: "查看会话、今日与本月本地 Token/成本账本"; shortcut: "U" }
-                    ListElement { actionId: "skills"; glyph: "$"; title: "调用项目技能"; detail: "发现 Codex、Claude 与 Cursor 项目工作流"; shortcut: "S" }
+                    ListElement { actionId: "skills"; glyph: "$"; title: "Skills 管理与调用"; detail: "创建、导入、安装并调用项目技能"; shortcut: "S" }
                     ListElement { actionId: "connections"; glyph: "⌘"; title: "工具与连接"; detail: "管理联网 MCP、凭据与内置工具状态"; shortcut: "M" }
                     ListElement { actionId: "project"; glyph: "↗"; title: "切换项目"; detail: "选择另一个本地工作区"; shortcut: "O" }
                 }
@@ -2159,6 +2201,210 @@ ApplicationWindow {
         id: projectFolderDialog
         title: "选择 YF-Harness 项目文件夹"
         onAccepted: controller.setWorkspace(selectedFolder.toString())
+    }
+
+    FolderDialog {
+        id: skillFolderDialog
+        title: "选择包含 SKILL.md 的文件夹"
+        onAccepted: controller.importProjectSkill(selectedFolder.toString())
+    }
+
+    Dialog {
+        id: skillsDialog
+        objectName: "skillsDialog"
+        anchors.centerIn: parent
+        width: Math.min(700, root.width - 80)
+        modal: true
+        closePolicy: Popup.CloseOnEscape
+        padding: 0
+        background: Rectangle {
+            radius: 16
+            color: root.surface
+            border.color: root.lineStrong
+            border.width: 1
+        }
+        contentItem: ColumnLayout {
+            spacing: 0
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.margins: 22
+                spacing: 5
+                Text { text: "Skills"; color: root.textPrimary; font.pixelSize: 18; font.weight: Font.DemiBold }
+                Text {
+                    text: controller ? controller.skillCount + " 个项目 Skill 可用  ·  $ 可直接调用" : ""
+                    color: root.textMuted
+                    font.pixelSize: 10
+                }
+            }
+            TabBar {
+                id: skillTabs
+                Layout.fillWidth: true
+                background: Rectangle { color: "transparent" }
+                SegmentTab { text: "已安装" }
+                SegmentTab { text: "新建 / 导入" }
+                SegmentTab { text: "从 GitHub 安装" }
+            }
+            Hairline { Layout.fillWidth: true }
+            StackLayout {
+                Layout.fillWidth: true
+                Layout.preferredHeight: Math.min(470, root.height - 270)
+                currentIndex: skillTabs.currentIndex
+                Item {
+                    ListView {
+                        anchors.fill: parent
+                        anchors.margins: 18
+                        clip: true
+                        spacing: 4
+                        model: controller ? controller.skillModel : null
+                        delegate: Rectangle {
+                            required property string skillId
+                            required property string name
+                            required property string description
+                            required property string source
+                            required property string path
+                            required property string warning
+                            width: ListView.view.width
+                            height: 64
+                            radius: 10
+                            color: skillManagerMouse.containsMouse ? root.surfaceSoft : "transparent"
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.leftMargin: 12
+                                anchors.rightMargin: 12
+                                spacing: 12
+                                Rectangle {
+                                    Layout.preferredWidth: 32
+                                    Layout.preferredHeight: 32
+                                    radius: 8
+                                    color: root.accentSoft
+                                    Text { anchors.centerIn: parent; text: "$"; color: root.accent; font.pixelSize: 13; font.weight: Font.Bold }
+                                }
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 2
+                                    Text { text: skillId; color: root.textPrimary; font.pixelSize: 11; font.weight: Font.DemiBold }
+                                    Text { Layout.fillWidth: true; text: description; color: root.textMuted; font.pixelSize: 9; elide: Text.ElideRight }
+                                }
+                                Text { text: "调用  ↗"; color: root.accent; font.pixelSize: 9; font.weight: Font.DemiBold }
+                            }
+                            MouseArea {
+                                id: skillManagerMouse
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: {
+                                    promptInput.text = "$" + skillId + " "
+                                    promptInput.cursorPosition = promptInput.length
+                                    skillsDialog.close()
+                                    promptInput.forceActiveFocus()
+                                }
+                            }
+                        }
+                        footer: Text {
+                            width: parent ? parent.width : 0
+                            topPadding: 12
+                            text: controller && controller.skillCount === 0
+                                  ? "当前项目还没有 Skill，可在下一页创建或导入。" : "附带脚本不会自动执行，工具声明也不会授予权限。"
+                            color: root.textMuted
+                            font.pixelSize: 9
+                            wrapMode: Text.Wrap
+                        }
+                    }
+                }
+                Item {
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: 20
+                        spacing: 9
+                        TextField { id: newSkillName; Layout.fillWidth: true; placeholderText: "Skill 名称，例如 review-changes" }
+                        TextField { id: newSkillDescription; Layout.fillWidth: true; placeholderText: "一句话说明用途" }
+                        TextArea {
+                            id: newSkillInstructions
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            placeholderText: "写下 Skill 指令；可使用 $ARGUMENTS 或 $1…$9"
+                            wrapMode: TextEdit.Wrap
+                            background: Rectangle { radius: 8; color: root.surfaceSoft; border.color: root.line }
+                        }
+                        TextField { id: newSkillTools; Layout.fillWidth: true; placeholderText: "声明工具，逗号分隔（可选，不会自动授权）" }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            QuietButton {
+                                label: "创建 Skill"
+                                prominent: true
+                                enabled: newSkillName.text.trim().length > 0
+                                         && newSkillInstructions.text.trim().length > 0
+                                onClicked: {
+                                    controller.createProjectSkill(newSkillName.text,
+                                                                  newSkillDescription.text,
+                                                                  newSkillInstructions.text,
+                                                                  newSkillTools.text)
+                                    newSkillName.clear()
+                                    newSkillDescription.clear()
+                                    newSkillInstructions.clear()
+                                    newSkillTools.clear()
+                                    skillTabs.currentIndex = 0
+                                }
+                            }
+                            QuietButton { label: "导入本地文件夹"; onClicked: skillFolderDialog.open() }
+                            Item { Layout.fillWidth: true }
+                        }
+                    }
+                }
+                Item {
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: 20
+                        spacing: 10
+                        Text {
+                            Layout.fillWidth: true
+                            text: "通过本机 gh 登录下载公开或私密仓库。只安装指定目录，不运行仓库代码。"
+                            color: root.textSecondary
+                            font.pixelSize: 10
+                            wrapMode: Text.Wrap
+                        }
+                        TextField { id: githubSkillRepo; Layout.fillWidth: true; placeholderText: "仓库：owner/repo 或 GitHub URL" }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 8
+                            TextField { id: githubSkillRef; Layout.preferredWidth: 170; placeholderText: "分支 / Tag（可选）" }
+                            TextField { id: githubSkillPath; Layout.fillWidth: true; placeholderText: "Skill 目录，例如 skills/review" }
+                        }
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 86
+                            radius: 9
+                            color: root.surfaceSoft
+                            Text {
+                                anchors.fill: parent
+                                anchors.margins: 12
+                                text: "安装前校验\n· 必须存在有效 SKILL.md\n· 拒绝符号链接、路径逃逸、超大文件与同名覆盖"
+                                color: root.textMuted
+                                font.pixelSize: 9
+                                lineHeight: 1.35
+                            }
+                        }
+                        QuietButton {
+                            label: "从 GitHub 安装"
+                            prominent: true
+                            enabled: githubSkillRepo.text.trim().length > 0
+                                     && githubSkillPath.text.trim().length > 0
+                            onClicked: controller.installGitHubSkill(githubSkillRepo.text,
+                                                                     githubSkillRef.text,
+                                                                     githubSkillPath.text)
+                        }
+                        Item { Layout.fillHeight: true }
+                    }
+                }
+            }
+            Hairline { Layout.fillWidth: true }
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.margins: 16
+                Item { Layout.fillWidth: true }
+                QuietButton { label: "完成"; prominent: true; onClicked: skillsDialog.close() }
+            }
+        }
     }
 
     Dialog {

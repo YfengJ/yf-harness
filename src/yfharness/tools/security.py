@@ -93,3 +93,17 @@ def resolve_executable(value: str) -> str:
         if candidate.is_file() and os.access(candidate, os.X_OK):
             return str(candidate)
     raise FileNotFoundError(f"找不到可执行文件: {value}")
+
+
+def github_cli_environment(source: dict[str, str] | None = None) -> dict[str, str]:
+    """Allow gh to find its own config while keeping unrelated secrets out."""
+
+    original = source if source is not None else dict(os.environ)
+    environment = sanitized_environment(original)
+    configured = original.get("GH_CONFIG_DIR")
+    default = Path.home() / ".config" / "gh"
+    if configured:
+        environment["GH_CONFIG_DIR"] = configured
+    elif default.is_dir():
+        environment["GH_CONFIG_DIR"] = str(default)
+    return environment

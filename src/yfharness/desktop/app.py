@@ -30,6 +30,7 @@ def main() -> None:
     parser.add_argument("--empty-preview", action="store_true")
     parser.add_argument("--preview-command", action="store_true")
     parser.add_argument("--preview-connections", action="store_true")
+    parser.add_argument("--preview-skills", action="store_true")
     parser.add_argument("--layout-report")
     args, qt_args = parser.parse_known_args()
     os.environ.setdefault("QT_QUICK_CONTROLS_STYLE", "Basic")
@@ -67,6 +68,7 @@ def main() -> None:
             window.setProperty("inspectorOpen", True)
         window.setProperty("commandPreviewRequested", args.preview_command)
         window.setProperty("connectionsPreviewRequested", args.preview_connections)
+        window.setProperty("skillsPreviewRequested", args.preview_skills)
     application.aboutToQuit.connect(controller.shutdown)
 
     if args.screenshot:

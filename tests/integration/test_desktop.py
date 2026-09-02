@@ -318,6 +318,8 @@ def test_desktop_discovers_filters_and_runs_explicit_project_skill(
 
     assert controller.skillCount == 1
     assert controller.skillIdAt(0) == "codex:review"
+    controller.filterSkills("$")
+    assert controller.skillCount == 1
     controller.filterSkills("$missing")
     assert controller.skillCount == 0
     controller.filterSkills("$rev")
