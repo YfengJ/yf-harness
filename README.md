@@ -247,7 +247,7 @@ yfh config path
 
 桌面端从 Composer 的 `+`、命令中心或左下角“工具与连接”进入集成管理：
 
-- Brave Search 通过固定版本的官方 MCP server 接入；API Key 保存到系统钥匙串，也可使用 `BRAVE_API_KEY` 环境变量。点击“测试连接”先验证工具发现，真正联网时仍显示网络审批。
+- Brave Search 通过固定版本的官方 MCP server 接入；需要本机安装 Node.js/npm（提供 `npx`）。API Key 保存到系统钥匙串，也可使用 `BRAVE_API_KEY` 环境变量。点击“测试连接”先验证工具发现，真正联网时仍显示网络审批。
 - 自定义 MCP 只保存 stdio 命令、参数和环境变量名，不保存密钥值；未知工具默认高风险并要求审批。
 - Skills 安装到当前 workspace 的 `.agents/skills`，拒绝符号链接、超限目录和覆盖，附带脚本不会自动执行。
 - GitHub 复用系统已有的 `gh auth`，只连接当前 workspace 的 `github.com` origin。可查看 PR、Issue、Actions 和私密性，也可执行普通 push、仅快进 pull、创建分支/PR/Issue、评论及重跑失败任务。

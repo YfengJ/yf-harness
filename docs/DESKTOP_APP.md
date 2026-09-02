@@ -54,7 +54,7 @@ Developer ID Application 证书重新签名，并提交 Apple notarization。项
 ## 0.12 Composer、工具与连接
 
 - **Composer 控制：** 模型和 Agent/Plan 模式位于输入框底栏；Goal 和上下文概览也在同一操作带内，完整 Provider、Workflow 与权限保留在高级设置。
-- **联网搜索：** 在“工具与连接”启用 Brave Search，API Key 写入系统钥匙串；也可由启动 App 的环境提供 `BRAVE_API_KEY`。点击“测试连接”会实际启动 MCP 并发现工具，真正搜索时继续走网络审批。
+- **联网搜索：** 本机需先安装 Node.js/npm（提供 `npx`）。在“工具与连接”启用 Brave Search，API Key 写入系统钥匙串；也可由启动 App 的环境提供 `BRAVE_API_KEY`。点击“测试连接”会实际启动 MCP 并发现工具，真正搜索时继续走网络审批。
 - **自定义 MCP：** 只支持显式命令、参数和环境变量名的 stdio 服务。界面保存非密钥配置，密钥值必须来自环境或系统凭据库。
 - **Skills：** “Skills 管理”可创建项目 Skill、导入普通文件夹，或通过现有 `gh` 登录从 GitHub 安装。安装位置为当前项目 `.agents/skills`；安装过程不运行脚本，也不会覆盖同名目录。
 - **GitHub：** “GitHub 工作区”只读取当前项目的 `github.com` origin，并复用系统 `gh auth`。可查看 PR、Issue、Actions、私密性和同步状态；写操作范围限于普通 push、仅快进 pull、建分支、创建 PR/Issue、评论和重跑失败任务。

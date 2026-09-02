@@ -2477,7 +2477,7 @@ ApplicationWindow {
                     }
                     Text {
                         Layout.fillWidth: true
-                        text: "通过受控 MCP 提供网页、新闻与 LLM Context 搜索。Key 只进入系统钥匙串。"
+                        text: "通过受控 MCP 提供网页、新闻与 LLM Context 搜索。Key 仅从环境或系统钥匙串读取；需要本机已安装 Node.js / npx。"
                         color: root.textSecondary
                         font.pixelSize: 10
                         wrapMode: Text.Wrap
