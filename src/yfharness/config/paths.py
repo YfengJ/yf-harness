@@ -21,6 +21,12 @@ def config_file() -> Path:
     return config_dir() / "config.toml"
 
 
+def managed_config_file() -> Path:
+    """App-owned non-secret integration settings kept separate from hand-written TOML."""
+
+    return config_dir() / "managed-integrations.json"
+
+
 def data_dir() -> Path:
     if override := os.environ.get("YFH_DATA_DIR"):
         return Path(override).expanduser()

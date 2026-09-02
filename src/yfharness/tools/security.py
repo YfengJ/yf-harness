@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 from pathlib import Path
 
 from yfharness.core.exceptions import PolicyDeniedError
@@ -75,3 +76,20 @@ def truncate_output(value: str, limit: int) -> tuple[str, bool]:
         return value, False
     omitted = len(value) - limit
     return f"{value[:limit]}\n... <truncated {omitted} characters>", True
+
+
+def resolve_executable(value: str) -> str:
+    """Resolve GUI-launched helper tools without executing a login shell."""
+
+    requested = Path(value).expanduser()
+    if requested.parent != Path("."):
+        if requested.is_file() and os.access(requested, os.X_OK):
+            return str(requested.resolve())
+        raise FileNotFoundError(f"找不到可执行文件: {value}")
+    if resolved := shutil.which(value):
+        return resolved
+    for root in (Path.home() / ".local/bin", Path("/opt/homebrew/bin"), Path("/usr/local/bin")):
+        candidate = root / value
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return str(candidate)
+    raise FileNotFoundError(f"找不到可执行文件: {value}")

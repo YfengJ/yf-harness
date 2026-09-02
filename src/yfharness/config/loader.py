@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import tomllib
@@ -13,7 +14,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from yfharness.config.models import AppConfig
-from yfharness.config.paths import config_file
+from yfharness.config.paths import config_file, managed_config_file
 from yfharness.core.exceptions import HarnessError
 
 _ENV_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
@@ -36,6 +37,9 @@ def load_config(
     root = (workspace or Path.cwd()).resolve()
     env = environ if environ is not None else os.environ
     merged = AppConfig(workspace=root).model_dump(mode="python")
+    managed_path = managed_config_file()
+    if managed_path.is_file():
+        merged = _deep_merge(merged, _read_json(managed_path))
     default_user_path = user_path or config_file()
     default_project_path = project_path or root / ".yfh" / "config.toml"
     for path in (default_user_path, default_project_path):
@@ -57,6 +61,16 @@ def _read_toml(path: Path) -> dict[str, Any]:
             return tomllib.load(handle)
     except (OSError, tomllib.TOMLDecodeError) as exc:
         raise ConfigError(f"无法读取配置 {path}: {exc}") from exc
+
+
+def _read_json(path: Path) -> dict[str, Any]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ConfigError(f"无法读取托管配置 {path}: {exc}") from exc
+    if not isinstance(value, dict):
+        raise ConfigError(f"托管配置必须是 JSON 对象: {path}")
+    return value
 
 
 def _deep_merge(base: Mapping[str, Any], override: Mapping[str, Any]) -> dict[str, Any]:

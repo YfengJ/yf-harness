@@ -37,9 +37,14 @@ ApplicationWindow {
     property bool inspectorOpen: false
     property bool commandOpen: false
     property bool commandPreviewRequested: false
+    property bool connectionsPreviewRequested: false
     onCommandPreviewRequestedChanged: {
         if (commandPreviewRequested)
             Qt.callLater(function() { commandCenter.open() })
+    }
+    onConnectionsPreviewRequestedChanged: {
+        if (connectionsPreviewRequested)
+            Qt.callLater(function() { connectionsDialog.open() })
     }
 
     function selectValue(combo, value) {
@@ -83,6 +88,8 @@ ApplicationWindow {
             promptInput.text = "$"
             controller.filterSkills("$")
             Qt.callLater(function() { promptInput.forceActiveFocus() })
+        } else if (actionId === "connections") {
+            Qt.callLater(function() { connectionsDialog.open() })
         } else if (actionId === "goal") {
             Qt.callLater(function() { goalPopup.open() })
         } else if (actionId === "project") {
@@ -2033,6 +2040,7 @@ ApplicationWindow {
                     ListElement { actionId: "context"; glyph: "◔"; title: "查看上下文"; detail: "检查 Token 预算、规则来源与压缩状态"; shortcut: "C" }
                     ListElement { actionId: "usage"; glyph: "∑"; title: "用量与额度"; detail: "查看会话、今日与本月本地 Token/成本账本"; shortcut: "U" }
                     ListElement { actionId: "skills"; glyph: "$"; title: "调用项目技能"; detail: "发现 Codex、Claude 与 Cursor 项目工作流"; shortcut: "S" }
+                    ListElement { actionId: "connections"; glyph: "⌘"; title: "工具与连接"; detail: "管理联网 MCP、凭据与内置工具状态"; shortcut: "M" }
                     ListElement { actionId: "project"; glyph: "↗"; title: "切换项目"; detail: "选择另一个本地工作区"; shortcut: "O" }
                 }
                 delegate: Rectangle {
@@ -2151,6 +2159,164 @@ ApplicationWindow {
         id: projectFolderDialog
         title: "选择 YF-Harness 项目文件夹"
         onAccepted: controller.setWorkspace(selectedFolder.toString())
+    }
+
+    Dialog {
+        id: connectionsDialog
+        objectName: "connectionsDialog"
+        anchors.centerIn: parent
+        width: Math.min(660, root.width - 80)
+        modal: true
+        closePolicy: Popup.CloseOnEscape
+        padding: 0
+        background: Rectangle {
+            radius: 16
+            color: root.surface
+            border.color: root.lineStrong
+            border.width: 1
+        }
+        contentItem: ColumnLayout {
+            spacing: 0
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.leftMargin: 24
+                Layout.rightMargin: 24
+                Layout.topMargin: 20
+                Layout.bottomMargin: 18
+                spacing: 5
+                Text { text: "工具与连接"; color: root.textPrimary; font.pixelSize: 18; font.weight: Font.DemiBold }
+                Text {
+                    text: controller ? controller.builtinToolCount + " 个内置工具已就绪  ·  "
+                                       + controller.mcpServerCount + " 个 MCP 已启用" : ""
+                    color: root.textMuted
+                    font.pixelSize: 10
+                }
+            }
+            Hairline { Layout.fillWidth: true }
+            ScrollView {
+                Layout.fillWidth: true
+                Layout.preferredHeight: Math.min(520, root.height - 220)
+                clip: true
+                ColumnLayout {
+                    width: connectionsDialog.width - 48
+                    spacing: 8
+                    Text {
+                        Layout.topMargin: 20
+                        text: "BRAVE SEARCH MCP"
+                        color: root.textMuted
+                        font.pixelSize: 9
+                        font.letterSpacing: 1.0
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        text: "通过受控 MCP 提供网页、新闻与 LLM Context 搜索。Key 只进入系统钥匙串。"
+                        color: root.textSecondary
+                        font.pixelSize: 10
+                        wrapMode: Text.Wrap
+                    }
+                    TextField {
+                        id: braveKeyInput
+                        Layout.fillWidth: true
+                        Layout.topMargin: 6
+                        placeholderText: controller && controller.braveKeyPresent
+                                         ? "系统钥匙串中已有 BRAVE_API_KEY" : "输入 Brave API Key"
+                        echoMode: TextInput.Password
+                        font.pixelSize: 11
+                        background: Rectangle {
+                            radius: 8
+                            color: root.surfaceSoft
+                            border.color: braveKeyInput.activeFocus ? root.accent : root.line
+                        }
+                    }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 8
+                        QuietButton {
+                            label: controller && controller.braveConfigured ? "更新配置" : "启用 Brave"
+                            prominent: true
+                            onClicked: {
+                                controller.configureBraveSearch(braveKeyInput.text)
+                                braveKeyInput.clear()
+                            }
+                        }
+                        QuietButton {
+                            label: "测试连接"
+                            enabled: controller ? controller.mcpServerCount > 0 : false
+                            onClicked: controller.testMcpConnections()
+                        }
+                        QuietButton {
+                            label: "停用"
+                            enabled: controller ? controller.braveConfigured : false
+                            onClicked: controller.disableBraveSearch()
+                        }
+                        Item { Layout.fillWidth: true }
+                        Text {
+                            text: controller ? controller.mcpStatus : ""
+                            color: root.textMuted
+                            font.pixelSize: 9
+                            elide: Text.ElideRight
+                        }
+                    }
+                    Hairline { Layout.fillWidth: true; Layout.topMargin: 16; Layout.bottomMargin: 12 }
+                    Text {
+                        text: "自定义 STDIO MCP"
+                        color: root.textPrimary
+                        font.pixelSize: 12
+                        font.weight: Font.DemiBold
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        text: "自定义服务默认按高风险工具处理；这里只保存环境变量名称，不保存值。"
+                        color: root.textMuted
+                        font.pixelSize: 9
+                        wrapMode: Text.Wrap
+                    }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 8
+                        TextField {
+                            id: customMcpName
+                            Layout.preferredWidth: 150
+                            placeholderText: "名称"
+                            font.pixelSize: 10
+                        }
+                        TextField {
+                            id: customMcpCommand
+                            Layout.fillWidth: true
+                            placeholderText: "命令，例如 uvx my-mcp-server"
+                            font.pixelSize: 10
+                        }
+                    }
+                    TextField {
+                        id: customMcpEnv
+                        Layout.fillWidth: true
+                        placeholderText: "允许传入的环境变量名，逗号分隔（可选）"
+                        font.pixelSize: 10
+                    }
+                    QuietButton {
+                        label: "保存自定义 MCP"
+                        enabled: customMcpName.text.trim().length > 0
+                                 && customMcpCommand.text.trim().length > 0
+                        onClicked: {
+                            controller.configureCustomMcp(customMcpName.text,
+                                                          customMcpCommand.text,
+                                                          customMcpEnv.text)
+                            customMcpName.clear()
+                            customMcpCommand.clear()
+                            customMcpEnv.clear()
+                        }
+                    }
+                    Item { Layout.preferredHeight: 18 }
+                }
+            }
+            Hairline { Layout.fillWidth: true }
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.margins: 16
+                Item { Layout.fillWidth: true }
+                QuietButton { label: "完成"; prominent: true; onClicked: connectionsDialog.close() }
+            }
+        }
     }
 
     Dialog {

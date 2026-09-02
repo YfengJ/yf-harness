@@ -118,6 +118,41 @@ def test_desktop_controller_runs_and_persists_mock_task(
 
 
 @pytest.mark.desktop
+def test_desktop_configures_brave_without_persisting_secret(
+    qt_application: QGuiApplication,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("YFH_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("YFH_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.delenv("BRAVE_API_KEY", raising=False)
+    credentials: dict[str, str] = {}
+    monkeypatch.setattr(
+        "keyring.get_password",
+        lambda service, name: credentials.get(name),
+    )
+    monkeypatch.setattr(
+        "keyring.set_password",
+        lambda service, name, value: credentials.__setitem__(name, value),
+    )
+    controller = DesktopController()
+
+    controller.configureBraveSearch("brave-secret")
+
+    managed = tmp_path / "config" / "managed-integrations.json"
+    assert controller.braveConfigured
+    assert controller.braveKeyPresent
+    assert controller.mcpServerCount == 1
+    assert "brave-secret" not in managed.read_text(encoding="utf-8")
+    assert "BRAVE_API_KEY" in managed.read_text(encoding="utf-8")
+
+    controller.disableBraveSearch()
+    assert not controller.braveConfigured
+    assert credentials["BRAVE_API_KEY"] == "brave-secret"
+    controller.shutdown()
+
+
+@pytest.mark.desktop
 def test_desktop_can_switch_configured_model_in_existing_session(
     qt_application: QGuiApplication,
     tmp_path: Path,

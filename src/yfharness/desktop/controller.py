@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import shlex
 import threading
 from collections import deque
 from collections.abc import Callable, Coroutine
@@ -29,7 +30,10 @@ from PySide6.QtCore import (
 )
 
 from yfharness.cli import _run_once
+from yfharness.config.credentials import CredentialError, CredentialStore
 from yfharness.config.loader import load_config
+from yfharness.config.managed import save_mcp_server
+from yfharness.config.models import MCPServerSettings, MCPToolPolicy
 from yfharness.config.paths import config_dir, database_file
 from yfharness.core.agent import AgentRunner
 from yfharness.core.agent_events import (
@@ -49,10 +53,12 @@ from yfharness.core.models import (
     ContentPart,
     ContentPartType,
     MessageRole,
+    ToolRiskLevel,
 )
 from yfharness.core.policies import AgentMode, ApprovalPolicy
 from yfharness.core.review import ChangeReviewItem, WorkspaceReview
 from yfharness.core.skills import SkillCatalog, SkillSummary
+from yfharness.integrations.mcp import register_mcp_tools
 from yfharness.storage.database import Database
 from yfharness.storage.models import SessionRecord, UsageTotals
 from yfharness.storage.repositories import (
@@ -61,7 +67,7 @@ from yfharness.storage.repositories import (
     SessionRepository,
     TraceRepository,
 )
-from yfharness.tools.registry import builtin_tools
+from yfharness.tools.registry import ToolRegistry, builtin_tools
 from yfharness.tools.security import WorkspaceGuard
 
 _INVALID_MODEL_INDEX = QModelIndex()
@@ -160,6 +166,7 @@ class DesktopController(QObject):
     usageChanged = Signal()
     goalChanged = Signal()
     workspaceChanged = Signal()
+    connectionsChanged = Signal()
     errorOccurred = Signal(str)
     approvalRequested = Signal(str)
     agentEvent = Signal(str, object)
@@ -229,6 +236,9 @@ class DesktopController(QObject):
         self._goal_status = "inactive"
         self._base_context_items: list[dict[str, object]] = []
         self._all_skills: list[SkillSummary] = []
+        self._mcp_status = "尚未测试"
+        self._brave_key_present = False
+        self._refresh_connection_state()
         self._refresh_skills()
         self.agentEvent.connect(self._handle_agent_event, Qt.ConnectionType.QueuedConnection)
         self.taskFinished.connect(self._handle_task_finished, Qt.ConnectionType.QueuedConnection)
@@ -272,6 +282,27 @@ class DesktopController(QObject):
     @Property(int, notify=skillsChanged)
     def skillCount(self) -> int:
         return self.skills.rowCount()
+
+    @Property(int, constant=True)
+    def builtinToolCount(self) -> int:
+        return len(builtin_tools().names())
+
+    @Property(int, notify=connectionsChanged)
+    def mcpServerCount(self) -> int:
+        return sum(1 for item in self._config.mcp_servers.values() if item.enabled)
+
+    @Property(bool, notify=connectionsChanged)
+    def braveConfigured(self) -> bool:
+        settings = self._config.mcp_servers.get("brave_search")
+        return settings is not None and settings.enabled
+
+    @Property(bool, notify=connectionsChanged)
+    def braveKeyPresent(self) -> bool:
+        return self._brave_key_present
+
+    @Property(str, notify=connectionsChanged)
+    def mcpStatus(self) -> str:
+        return self._mcp_status
 
     @Property(bool, notify=busyChanged)
     def busy(self) -> bool:
@@ -780,9 +811,7 @@ class DesktopController(QObject):
         if pending is None:
             return
         if isinstance(decision, bool):
-            pending.decision = (
-                ApprovalDecision.ALLOW_ONCE if decision else ApprovalDecision.DENY
-            )
+            pending.decision = ApprovalDecision.ALLOW_ONCE if decision else ApprovalDecision.DENY
         else:
             try:
                 pending.decision = ApprovalDecision(decision)
@@ -799,9 +828,89 @@ class DesktopController(QObject):
             self.errorOccurred.emit(f"配置加载失败：{exc}")
             return
         self._restore_saved_workspace()
+        self._refresh_connection_state()
         self._refresh_skills()
         self.configurationChanged.emit()
         self._set_status("配置已刷新")
+
+    @Slot(str)
+    def configureBraveSearch(self, api_key: str) -> None:
+        value = api_key.strip()
+        try:
+            if value:
+                CredentialStore().set("BRAVE_API_KEY", value)
+            elif CredentialStore().get("BRAVE_API_KEY") is None:
+                raise ValueError("请输入 Brave API Key，或先设置 BRAVE_API_KEY 环境变量")
+            save_mcp_server(
+                "brave_search",
+                MCPServerSettings(
+                    command=[
+                        "npx",
+                        "--yes",
+                        "@brave/brave-search-mcp-server@2.1.0",
+                        "--transport",
+                        "stdio",
+                    ],
+                    enabled=True,
+                    enabled_tools=[
+                        "brave_web_search",
+                        "brave_news_search",
+                        "brave_llm_context",
+                    ],
+                    env_keys=["BRAVE_API_KEY"],
+                    startup_timeout=30,
+                    tool_timeout=90,
+                    tool_overrides={
+                        name: MCPToolPolicy(
+                            read_only=True,
+                            risk_level=ToolRiskLevel.MEDIUM,
+                            always_approval=False,
+                            network=True,
+                        )
+                        for name in (
+                            "brave_web_search",
+                            "brave_news_search",
+                            "brave_llm_context",
+                        )
+                    },
+                ),
+            )
+            self._reload_after_managed_change("Brave Search MCP 已启用")
+        except (CredentialError, OSError, ValueError) as exc:
+            self.errorOccurred.emit(str(exc))
+
+    @Slot()
+    def disableBraveSearch(self) -> None:
+        try:
+            save_mcp_server("brave_search", None)
+            self._reload_after_managed_change("Brave Search MCP 已停用；钥匙串凭据已保留")
+        except (OSError, ValueError) as exc:
+            self.errorOccurred.emit(str(exc))
+
+    @Slot(str, str, str)
+    def configureCustomMcp(self, name: str, command_line: str, env_keys: str) -> None:
+        normalized = name.strip().lower()
+        try:
+            command = shlex.split(command_line)
+            keys = [item.strip() for item in env_keys.split(",") if item.strip()]
+            if not normalized:
+                raise ValueError("MCP 名称不能为空")
+            save_mcp_server(
+                normalized,
+                MCPServerSettings(command=command, enabled=True, env_keys=keys),
+            )
+            self._reload_after_managed_change(f"MCP {normalized} 已保存；默认按高风险审批")
+        except (OSError, ValueError) as exc:
+            self.errorOccurred.emit(str(exc))
+
+    @Slot()
+    def testMcpConnections(self) -> None:
+        if self._busy:
+            self.errorOccurred.emit("请等待当前任务结束后再测试连接")
+            return
+        self._mcp_status = "正在发现工具…"
+        self.connectionsChanged.emit()
+        self._submit("mcp_test", self._test_mcp_connections)
 
     @Slot()
     def seedPreview(self, stress: bool = False) -> None:
@@ -984,6 +1093,11 @@ class DesktopController(QObject):
             workspace=self._config.workspace,
         )
         return {"sessions": [_session_item(item) for item in sessions]}
+
+    async def _test_mcp_connections(self) -> dict[str, object]:
+        registry = ToolRegistry()
+        names = await register_mcp_tools(registry, self._config, self._config.workspace)
+        return {"tools": names}
 
     async def _load_session(self, session_id: str) -> dict[str, object]:
         database = Database(database_file())
@@ -1232,6 +1346,10 @@ class DesktopController(QObject):
             elif kind == "compact_context":
                 self._set_busy(False)
                 self._set_status("上下文压缩失败")
+            elif kind == "mcp_test":
+                self._mcp_status = f"连接失败 · {message}"
+                self.connectionsChanged.emit()
+                self._set_status("MCP 连接测试失败")
             self.errorOccurred.emit(message)
             self._clear_runner()
             return
@@ -1345,6 +1463,12 @@ class DesktopController(QObject):
             self._context_summary = "已生成会话摘要 · 下次运行将直接复用"
             self.contextChanged.emit()
             self._set_status("上下文压缩完成")
+        elif kind == "mcp_test":
+            tools = payload.get("tools", [])
+            count = len(tools) if isinstance(tools, list) else 0
+            self._mcp_status = f"连接正常 · 已发现 {count} 个工具"
+            self.connectionsChanged.emit()
+            self._set_status(self._mcp_status)
         elif kind == "changes":
             changes = payload.get("changes", [])
             if isinstance(changes, list):
@@ -1436,6 +1560,19 @@ class DesktopController(QObject):
         ]
         self.skills.replace([_skill_item(item) for item in self._all_skills[:8]])
         self.skillsChanged.emit()
+
+    def _refresh_connection_state(self) -> None:
+        try:
+            self._brave_key_present = CredentialStore().get("BRAVE_API_KEY") is not None
+        except CredentialError:
+            self._brave_key_present = False
+        self.connectionsChanged.emit()
+
+    def _reload_after_managed_change(self, status: str) -> None:
+        self._config = load_config(workspace=self._config.workspace)
+        self._refresh_connection_state()
+        self.configurationChanged.emit()
+        self._set_status(status)
 
     def _restore_saved_workspace(self) -> None:
         path = config_dir() / "desktop-state.json"

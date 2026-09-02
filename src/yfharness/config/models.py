@@ -8,7 +8,7 @@ from typing import Literal
 
 from pydantic import Field, field_validator, model_validator
 
-from yfharness.core.models import DomainModel, ModelConfig
+from yfharness.core.models import DomainModel, ModelConfig, ToolRiskLevel
 from yfharness.core.policies import AgentMode, ApprovalPolicy
 from yfharness.core.workflows import WorkflowProfile
 
@@ -47,12 +47,20 @@ class UsageSettings(DomainModel):
     monthly_cost_budget: float | None = Field(default=None, gt=0)
 
 
+class MCPToolPolicy(DomainModel):
+    read_only: bool = False
+    risk_level: ToolRiskLevel = ToolRiskLevel.HIGH
+    always_approval: bool = True
+    network: bool = True
+
+
 class MCPServerSettings(DomainModel):
     command: list[str] = Field(min_length=1)
     enabled: bool = False
     enabled_tools: list[str] | None = None
     disabled_tools: list[str] = Field(default_factory=list)
     env_keys: list[str] = Field(default_factory=list)
+    tool_overrides: dict[str, MCPToolPolicy] = Field(default_factory=dict)
     startup_timeout: float = Field(default=10, gt=0, le=120)
     tool_timeout: float = Field(default=60, gt=0, le=900)
 

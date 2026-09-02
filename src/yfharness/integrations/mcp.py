@@ -15,12 +15,13 @@ from typing import Any, ClassVar, TypeVar
 from pydantic import ConfigDict
 
 from yfharness import __version__
+from yfharness.config.credentials import CredentialStore
 from yfharness.config.models import AppConfig, MCPServerSettings
 from yfharness.core.exceptions import HarnessError
 from yfharness.core.models import ToolDefinition, ToolResult, ToolRiskLevel
 from yfharness.tools.base import Tool, ToolContext, ToolInput, ToolPreview
 from yfharness.tools.registry import ToolRegistry
-from yfharness.tools.security import sanitized_environment, truncate_output
+from yfharness.tools.security import resolve_executable, sanitized_environment, truncate_output
 
 _PROTOCOL_VERSION = "2025-06-18"
 _SAFE_NAME = re.compile(r"[^A-Za-z0-9_.-]+")
@@ -43,11 +44,13 @@ class MCPClient:
         workspace: Path,
         *,
         environ: Mapping[str, str] | None = None,
+        credentials: CredentialStore | None = None,
     ) -> None:
         self.server_name = server_name
         self.settings = settings
         self.workspace = workspace
         self.environ = environ if environ is not None else os.environ
+        self.credentials = credentials or CredentialStore()
 
     async def list_tools(self) -> list[dict[str, Any]]:
         async def operation(process: asyncio.subprocess.Process) -> list[dict[str, Any]]:
@@ -93,12 +96,14 @@ class MCPClient:
         timeout_seconds: float,
     ) -> _ResultT:
         environment = sanitized_environment(dict(self.environ))
-        environment.update(
-            {key: self.environ[key] for key in self.settings.env_keys if key in self.environ}
-        )
+        for key in self.settings.env_keys:
+            value = self.credentials.get(key, environ=self.environ)
+            if value is not None:
+                environment[key] = value
+        command = [resolve_executable(self.settings.command[0]), *self.settings.command[1:]]
         try:
             process = await asyncio.create_subprocess_exec(
-                *self.settings.command,
+                *command,
                 cwd=self.workspace,
                 env=environment,
                 stdin=asyncio.subprocess.PIPE,
@@ -192,6 +197,7 @@ class MCPTool(Tool):
     always_approval = True
     original_name: ClassVar[str]
     input_schema: ClassVar[dict[str, Any]]
+    network: ClassVar[bool] = True
 
     def __init__(self, client: MCPClient) -> None:
         self.client = client
@@ -202,7 +208,7 @@ class MCPTool(Tool):
             description=self.description,
             parameters=self.input_schema,
             risk_level=self.risk_level,
-            read_only=False,
+            read_only=self.read_only,
         )
 
     def validate_arguments(self, value: dict[str, object]) -> ToolInput:
@@ -210,7 +216,7 @@ class MCPTool(Tool):
         return self.input_model.model_validate(value)
 
     async def preview(self, arguments: ToolInput, context: ToolContext) -> ToolPreview:
-        return ToolPreview(paths=["."], command=self.client.settings.command, network=True)
+        return ToolPreview(paths=["."], command=self.client.settings.command, network=self.network)
 
     async def execute(self, arguments: ToolInput, context: ToolContext) -> ToolResult:
         result = await self.client.call_tool(self.original_name, arguments.model_dump())
@@ -262,6 +268,7 @@ async def register_mcp_tools(
             schema = manifest.get("inputSchema")
             input_schema = schema if isinstance(schema, dict) else {"type": "object"}
             description = str(manifest.get("description") or f"MCP tool {original_name}")
+            override = settings.tool_overrides.get(original_name)
             tool_type = type(
                 f"MCPTool_{_normalize(server_name)}_{_normalize(original_name)}",
                 (MCPTool,),
@@ -270,6 +277,12 @@ async def register_mcp_tools(
                     "description": description,
                     "original_name": original_name,
                     "input_schema": input_schema,
+                    "read_only": override.read_only if override is not None else False,
+                    "risk_level": (
+                        override.risk_level if override is not None else ToolRiskLevel.HIGH
+                    ),
+                    "always_approval": (override.always_approval if override is not None else True),
+                    "network": override.network if override is not None else True,
                 },
             )
             registry.register(tool_type(client))

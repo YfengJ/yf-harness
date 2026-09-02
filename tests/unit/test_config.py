@@ -6,6 +6,8 @@ from pathlib import Path
 import pytest
 
 from yfharness.config.loader import ConfigError, load_config
+from yfharness.config.managed import read_managed_config, save_mcp_server
+from yfharness.config.models import MCPServerSettings
 
 
 def test_example_config_keeps_root_keys_at_document_scope() -> None:
@@ -168,3 +170,30 @@ monthly_cost_budget = 50.0
             project_path=project,
             user_path=tmp_path / "none",
         )
+
+
+def test_managed_integrations_are_atomic_and_lower_priority_than_user_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    managed = tmp_path / "managed.json"
+    save_mcp_server(
+        "search",
+        MCPServerSettings(command=["managed-server"], enabled=True),
+        path=managed,
+    )
+    assert read_managed_config(managed)["mcp_servers"]["search"]["enabled"] is True
+
+    monkeypatch.setenv("YFH_CONFIG_DIR", str(tmp_path))
+    managed.rename(tmp_path / "managed-integrations.json")
+    user = tmp_path / "user.toml"
+    user.write_text(
+        '[mcp_servers.search]\ncommand = ["user-server"]\nenabled = false\n',
+        encoding="utf-8",
+    )
+    config = load_config(
+        workspace=tmp_path,
+        user_path=user,
+        project_path=tmp_path / "missing.toml",
+    )
+    assert config.mcp_servers["search"].command == ["user-server"]
+    assert config.mcp_servers["search"].enabled is False
