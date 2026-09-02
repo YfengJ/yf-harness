@@ -70,6 +70,25 @@ def test_import_rejects_symlink_and_existing_destination(tmp_path: Path) -> None
         install_local_skill(workspace, source)
 
 
+def test_import_rejects_a_symlinked_skill_root(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "SKILL.md").write_text(
+        "---\nname: linked\ndescription: Linked\n---\nInspect",
+        encoding="utf-8",
+    )
+    link = tmp_path / "linked-source"
+    try:
+        link.symlink_to(source, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlinks are unavailable")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    with pytest.raises(ValueError, match="符号链接"):
+        install_local_skill(workspace, link)
+
+
 @pytest.mark.parametrize(
     "name",
     ["../escape", "contains spaces", "", "slash/name"],

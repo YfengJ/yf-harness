@@ -10,7 +10,7 @@ from yfharness.core.policies import AgentMode
 from yfharness.integrations.github import _repository_from_remote, _validate_branch
 from yfharness.tools.base import ToolContext
 from yfharness.tools.registry import ToolExecutor, builtin_tools
-from yfharness.tools.security import WorkspaceGuard
+from yfharness.tools.security import WorkspaceGuard, github_cli_environment
 
 
 @pytest.mark.parametrize(
@@ -30,6 +30,16 @@ def test_repository_scope_only_accepts_github_origin(remote: str, expected: str 
 def test_branch_validation_rejects_unsafe_names(branch: str) -> None:
     with pytest.raises(ValueError):
         _validate_branch(branch)
+
+
+def test_github_environment_uses_user_state_not_workspace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    environment = github_cli_environment({"PATH": "/usr/bin"})
+
+    assert environment["HOME"] == str(Path.home())
+    assert not (tmp_path / ".local").exists()
 
 
 @pytest.mark.asyncio

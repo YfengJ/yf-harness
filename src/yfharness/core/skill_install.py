@@ -60,8 +60,11 @@ def create_project_skill(
 
 
 def install_local_skill(workspace: Path, source: Path) -> SkillInstallResult:
-    source = source.expanduser().resolve(strict=True)
-    if not source.is_dir() or source.is_symlink():
+    requested = source.expanduser()
+    if requested.is_symlink():
+        raise ValueError("请选择包含 SKILL.md 的普通文件夹；不允许符号链接")
+    source = requested.resolve(strict=True)
+    if not source.is_dir():
         raise ValueError("请选择包含 SKILL.md 的普通文件夹")
     files = _validate_tree(source)
     summary = _validate_catalog(source)

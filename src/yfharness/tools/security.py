@@ -100,6 +100,7 @@ def github_cli_environment(source: dict[str, str] | None = None) -> dict[str, st
 
     original = source if source is not None else dict(os.environ)
     environment = sanitized_environment(original)
+    environment["HOME"] = str(Path.home())
     configured = original.get("GH_CONFIG_DIR")
     default = Path.home() / ".config" / "gh"
     if configured:
