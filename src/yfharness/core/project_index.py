@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import time
 from pathlib import Path
 
+from yfharness.core.exceptions import PolicyDeniedError
 from yfharness.core.models import DomainModel
 from yfharness.tools.security import WorkspaceGuard
 
@@ -20,6 +22,9 @@ _SKIP_PARTS = {
     "build",
     "dist",
     "node_modules",
+    ".ssh",
+    ".aws",
+    ".gnupg",
 }
 _SKIP_SUFFIXES = {
     ".7z",
@@ -37,6 +42,12 @@ _SKIP_SUFFIXES = {
     ".webp",
     ".whl",
     ".zip",
+    ".pem",
+    ".key",
+    ".p12",
+    ".pfx",
+    ".sqlite3",
+    ".db",
 }
 
 
@@ -77,10 +88,13 @@ class ProjectIndex:
             try:
                 path = self.guard.resolve(relative, must_exist=True)
                 size = path.stat().st_size
-            except OSError:
+            except (OSError, PolicyDeniedError):
                 continue
             if size <= 1_000_000:
-                text = self._sample(relative, path)
+                try:
+                    text = self._sample(relative, path)
+                except OSError:
+                    continue
                 if text is not None:
                     lowered = text.lower()
                     hits = sum(min(lowered.count(term), 4) for term in terms)
@@ -137,14 +151,17 @@ class ProjectIndex:
 
     def _filesystem_paths(self) -> list[str]:
         paths: list[str] = []
-        for path in self.guard.root.rglob("*"):
-            if len(paths) >= self.max_files:
-                break
-            if not path.is_file() or path.is_symlink():
-                continue
-            relative = self.guard.relative(path)
-            if self._eligible(relative):
-                paths.append(relative)
+        for directory, subdirs, files in os.walk(self.guard.root, followlinks=False):
+            subdirs[:] = sorted(name for name in subdirs if name not in _SKIP_PARTS)
+            for name in sorted(files):
+                if len(paths) >= self.max_files:
+                    return sorted(paths)
+                path = Path(directory) / name
+                if path.is_symlink() or not path.is_file():
+                    continue
+                relative = self.guard.relative(path)
+                if self._eligible(relative):
+                    paths.append(relative)
         return sorted(paths)
 
     def _changed_paths(self) -> set[str]:
@@ -172,6 +189,11 @@ class ProjectIndex:
 
     def _eligible(self, relative: str) -> bool:
         path = Path(relative)
+        name = path.name.lower()
+        if name in {"credentials", "credentials.json", "id_rsa", "id_ed25519", ".netrc"}:
+            return False
+        if name.startswith(".env") and name not in {".env.example", ".env.sample"}:
+            return False
         return not any(part in _SKIP_PARTS for part in path.parts) and (
             path.suffix.lower() not in _SKIP_SUFFIXES
         )
@@ -213,7 +235,8 @@ def _path_score(relative: str, terms: list[str]) -> tuple[float, list[str]]:
 
 
 def _sample_text(path: Path, limit: int) -> str | None:
-    raw = path.read_bytes()[:limit]
+    with path.open("rb") as handle:
+        raw = handle.read(limit)
     if b"\x00" in raw[:8192]:
         return None
     try:

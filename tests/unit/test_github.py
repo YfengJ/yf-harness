@@ -7,7 +7,12 @@ import pytest
 from yfharness.core.exceptions import PolicyDeniedError
 from yfharness.core.models import ApprovalDecision, ApprovalRequest, ToolCall
 from yfharness.core.policies import AgentMode
-from yfharness.integrations.github import _repository_from_remote, _validate_branch
+from yfharness.integrations.github import (
+    GitHubError,
+    GitHubService,
+    _repository_from_remote,
+    _validate_branch,
+)
 from yfharness.tools.base import ToolContext
 from yfharness.tools.registry import ToolExecutor, builtin_tools
 from yfharness.tools.security import WorkspaceGuard, github_cli_environment
@@ -31,6 +36,30 @@ def test_repository_scope_only_accepts_github_origin(remote: str, expected: str 
 def test_branch_validation_rejects_unsafe_names(branch: str) -> None:
     with pytest.raises(ValueError):
         _validate_branch(branch)
+
+
+@pytest.mark.parametrize(
+    "destination",
+    [
+        "https://example.test/leak.git",
+        "git@github.com:other/repo.git",
+        "git@github.com:owner/repo.git\ngit@github.com:other/repo.git",
+    ],
+)
+def test_push_rejects_different_or_additional_destination(tmp_path: Path, destination: str) -> None:
+    calls: list[list[str]] = []
+
+    class ScopedGitHub(GitHubService):
+        def _git(self, arguments: list[str], *, timeout: float = 30) -> str:
+            calls.append(arguments)
+            if "--push" in arguments:
+                return destination
+            return "git@github.com:owner/repo.git"
+
+    service = ScopedGitHub(tmp_path)
+    with pytest.raises(GitHubError, match="推送目标"):
+        service.push()
+    assert not any(call[0] == "push" for call in calls)
 
 
 def test_github_environment_uses_user_state_not_workspace(

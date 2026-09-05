@@ -310,6 +310,10 @@ async def session_recovery(workspace: Path) -> tuple[bool, int, int, str]:
     runs = RunRepository(database)
     session = await sessions.create(title="recover", provider="mock", model="scripted")
     run = await runs.create(session.id)
+    # Simulate a legacy/orphaned run, not a run owned by this live process.
+    async with database.connect() as connection:
+        await connection.execute("UPDATE runs SET owner_pid=NULL WHERE run_id=?", (run.run_id,))
+        await connection.commit()
     await runs.mark_interrupted()
     recovered = await runs.get(run.run_id)
     return recovered is not None and recovered.status is RunStatus.INTERRUPTED, 0, 0, ""

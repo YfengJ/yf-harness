@@ -5,7 +5,6 @@ from __future__ import annotations
 import difflib
 import hashlib
 import os
-import tempfile
 import time
 from pathlib import Path
 
@@ -13,7 +12,7 @@ from pydantic import Field
 
 from yfharness.core.models import ToolResult, ToolRiskLevel
 from yfharness.tools.base import Tool, ToolContext, ToolInput, ToolPreview, result_error
-from yfharness.tools.changes import ChangeEntry, ChangeJournal
+from yfharness.tools.changes import ChangeEntry, ChangeJournal, _atomic_bytes
 from yfharness.tools.security import truncate_output
 
 
@@ -162,8 +161,10 @@ class CreateDirectoryTool(Tool):
         assert isinstance(arguments, CreateDirectoryInput)
         started = time.monotonic()
         path = context.guard.resolve(arguments.path)
+        existed = path.exists()
         path.mkdir(parents=arguments.parents, exist_ok=arguments.exist_ok)
-        _journal(context).record(ChangeEntry(kind="mkdir", path=path))
+        if not existed:
+            _journal(context).record(ChangeEntry(kind="mkdir", path=path))
         relative = context.guard.relative(path)
         return ToolResult(
             tool_call_id=context.tool_call_id or "",
@@ -261,11 +262,16 @@ class MovePathTool(Tool):
                 error_type="directory_overwrite_denied",
             )
         destination_before = destination.read_bytes() if destination.exists() else None
+        source_content = source.read_bytes() if source.is_file() else None
         destination.parent.mkdir(parents=True, exist_ok=True)
         os.replace(source, destination)
         _journal(context).record(
             ChangeEntry(
-                kind="move", path=source, destination=destination, before=destination_before
+                kind="move",
+                path=source,
+                destination=destination,
+                before=destination_before,
+                after=source_content,
             )
         )
         return ToolResult(
@@ -337,20 +343,7 @@ def _diff(path: Path, old: str, new: str) -> str:
 
 
 def _atomic_write(path: Path, content: str) -> None:
-    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
-    temporary = Path(temporary_name)
-    try:
-        existing_mode = path.stat().st_mode if path.exists() else None
-        with os.fdopen(descriptor, "w", encoding="utf-8", newline="") as handle:
-            handle.write(content)
-            handle.flush()
-            os.fsync(handle.fileno())
-        if existing_mode is not None:
-            os.chmod(temporary, existing_mode)
-        os.replace(temporary, path)
-    finally:
-        if temporary.exists():
-            temporary.unlink()
+    _atomic_bytes(path, content.encode("utf-8"))
 
 
 def _hash(content: bytes | None) -> str | None:

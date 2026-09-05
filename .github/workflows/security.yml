@@ -1,0 +1,42 @@
+name: Security
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install verified Gitleaks 8.30.1
+        run: |
+          curl --fail --location --retry 3 -o /tmp/gitleaks.tar.gz https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
+          echo '551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  /tmp/gitleaks.tar.gz' | sha256sum --check
+          mkdir /tmp/yfh-gitleaks
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp/yfh-gitleaks gitleaks
+      - run: /tmp/yfh-gitleaks/gitleaks git . --redact --log-opts=--all --no-banner
+
+  dependencies:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v10.0.1
+        with:
+          python-version: "3.12"
+      - run: uv export --all-extras --locked --no-emit-project --format requirements-txt --output-file audit-requirements.txt
+      - name: Audit every locked extra, including optional frameworks
+        run: |
+          uvx pip-audit==2.10.1 -r audit-requirements.txt --no-deps --disable-pip --format json --output dependency-audit.json || test "$?" -eq 1
+          uv run --no-project python scripts/check_dependency_audit.py dependency-audit.json

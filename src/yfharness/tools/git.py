@@ -36,7 +36,7 @@ class GitDiffTool(Tool):
 
     async def execute(self, arguments: ToolInput, context: ToolContext) -> ToolResult:
         assert isinstance(arguments, GitDiffInput)
-        command = ["git", "diff"]
+        command = ["git", "diff", "--no-ext-diff", "--no-textconv"]
         if arguments.staged:
             command.append("--cached")
         if arguments.path:
@@ -64,7 +64,7 @@ class GitLogTool(Tool):
 
 async def _git(command: list[str], context: ToolContext) -> ToolResult:
     return await execute_command(
-        command,
+        [command[0], "-c", "core.fsmonitor=false", *command[1:]],
         cwd=context.workspace,
         shell=False,
         timeout_seconds=min(context.command_timeout, 60),

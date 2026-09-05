@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import stat
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -40,9 +42,16 @@ class ChangeJournal:
     def undo_last(self) -> str:
         if not self._entries:
             raise ToolExecutionError("没有可撤销的文件修改")
-        entry = self._entries.pop()
+        entry = self._entries[-1]
+        result = self._undo_entry(entry)
+        self._entries.pop()
+        return result
+
+    def _undo_entry(self, entry: ChangeEntry) -> str:
         path = self.guard.resolve(entry.path)
         if entry.kind == "write":
+            if not path.is_file() or path.read_bytes() != entry.after:
+                raise ToolExecutionError("文件在工具写入后发生变化，拒绝覆盖；撤销记录已保留")
             if entry.before is None:
                 if path.exists():
                     path.unlink()
@@ -50,6 +59,8 @@ class ChangeJournal:
             _atomic_bytes(path, entry.before)
             return f"已恢复文件 {self.guard.relative(path)}"
         if entry.kind == "delete":
+            if path.exists():
+                raise ToolExecutionError("删除路径已被重新创建，拒绝覆盖；撤销记录已保留")
             if entry.before is None:
                 path.mkdir(parents=False, exist_ok=False)
             else:
@@ -62,6 +73,10 @@ class ChangeJournal:
             destination = self.guard.resolve(entry.destination, must_exist=True)
             if path.exists():
                 raise ToolExecutionError("原路径已存在，无法安全撤销移动")
+            if entry.after is not None and (
+                not destination.is_file() or destination.read_bytes() != entry.after
+            ):
+                raise ToolExecutionError("移动后的文件发生变化，拒绝撤销；撤销记录已保留")
             os.replace(destination, path)
             if entry.before is not None:
                 _atomic_bytes(entry.destination, entry.before)
@@ -70,9 +85,16 @@ class ChangeJournal:
 
 
 def _atomic_bytes(path: Path, content: bytes) -> None:
-    temporary = path.with_name(f".{path.name}.yfh-undo-{os.getpid()}")
+    mode = stat.S_IMODE(path.stat().st_mode) if path.exists() else None
+    descriptor, name = tempfile.mkstemp(prefix=f".{path.name}.yfh-", dir=path.parent)
+    temporary = Path(name)
     try:
-        temporary.write_bytes(content)
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        if mode is not None:
+            temporary.chmod(mode)
         os.replace(temporary, path)
     finally:
         if temporary.exists():

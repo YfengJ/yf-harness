@@ -31,7 +31,7 @@ from PySide6.QtCore import (
 
 from yfharness.cli import _run_once
 from yfharness.config.credentials import CredentialError, CredentialStore
-from yfharness.config.loader import load_config
+from yfharness.config.loader import ConfigError, load_config
 from yfharness.config.managed import save_mcp_server
 from yfharness.config.models import MCPServerSettings, MCPToolPolicy
 from yfharness.config.paths import config_dir, database_file
@@ -141,8 +141,17 @@ class DictListModel(QAbstractListModel):
 
 class _PendingApproval:
     def __init__(self) -> None:
-        self.event = threading.Event()
+        self.event = asyncio.Event()
+        self.loop = asyncio.get_running_loop()
         self.decision = ApprovalDecision.DENY
+
+    def resolve(self, decision: ApprovalDecision) -> None:
+        def finish() -> None:
+            self.decision = decision
+            self.event.set()
+
+        if not self.loop.is_closed():
+            self.loop.call_soon_threadsafe(finish)
 
 
 @dataclass(frozen=True, slots=True)
@@ -176,6 +185,7 @@ class DesktopController(QObject):
     githubChanged = Signal()
     errorOccurred = Signal(str)
     approvalRequested = Signal(str)
+    approvalClosed = Signal()
     agentEvent = Signal(str, object)
     taskFinished = Signal(str, object)
 
@@ -215,6 +225,11 @@ class DesktopController(QObject):
         self.githubActions = DictListModel(["runId", "title", "detail", "status", "url"], self)
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="yfh-desktop")
         self._busy = False
+        self._operation_kind = ""
+        self._view_generation = 0
+        self._request_versions: dict[str, int] = {}
+        self._cancel_requested = threading.Event()
+        self._closing = False
         self._status = "准备就绪"
         self._current_session_id = ""
         self._current_session_title = "新任务"
@@ -222,9 +237,9 @@ class DesktopController(QObject):
         self._current_session_model = ""
         self._preview = False
         self._config = load_config()
+        self._restore_saved_workspace()
         self._current_session_provider = self._config.default_provider
         self._current_session_model = self._config.default_model
-        self._restore_saved_workspace()
         self._stream_text = ""
         self._runner_lock = threading.Lock()
         self._active_runner: AgentRunner | None = None
@@ -599,7 +614,13 @@ class DesktopController(QObject):
         if not path.is_dir():
             self.errorOccurred.emit("请选择存在的项目文件夹")
             return
-        self._config.workspace = path
+        try:
+            config = load_config(workspace=path)
+        except Exception as exc:
+            self.errorOccurred.emit(f"项目配置加载失败：{exc}")
+            return
+        self._view_generation += 1
+        self._config = config
         self._save_workspace(path)
         self._current_session_id = ""
         self._current_session_title = path.name or "新任务"
@@ -608,8 +629,19 @@ class DesktopController(QObject):
         self._set_goal_state("", "inactive")
         self.messages.replace([])
         self.changes.replace([])
+        self.clearQueue()
+        self._reset_runtime_context()
+        self._last_plan = ""
+        self.planChanged.emit()
+        self._github_snapshot = {}
+        self._github_status = "尚未连接"
+        self.githubPullRequests.replace([])
+        self.githubIssues.replace([])
+        self.githubActions.replace([])
+        self.githubChanged.emit()
         self.clearAttachments()
         self._refresh_skills()
+        self.configurationChanged.emit()
         self.workspaceChanged.emit()
         self.currentSessionChanged.emit()
         self._set_status("正在载入项目")
@@ -632,6 +664,9 @@ class DesktopController(QObject):
     def newSession(self) -> None:
         if self._busy:
             return
+        self._view_generation += 1
+        self.clearQueue()
+        self.clearAttachments()
         self._current_session_id = ""
         self._current_session_title = "新任务"
         self._current_session_provider = self._config.default_provider
@@ -650,6 +685,11 @@ class DesktopController(QObject):
     def openSession(self, session_id: str) -> None:
         if self._busy or not session_id:
             return
+        self._view_generation += 1
+        self.clearQueue()
+        self.clearAttachments()
+        self._last_plan = ""
+        self.planChanged.emit()
         self._submit("open_session", lambda: self._load_session(session_id))
 
     @Slot(str, str, str, str, str)
@@ -700,6 +740,9 @@ class DesktopController(QObject):
             selected_policy = ApprovalPolicy(permissions)
         except ValueError:
             self.errorOccurred.emit("运行模式或权限策略无效")
+            return
+        if self._busy and self._operation_kind != "run":
+            self.errorOccurred.emit("请等待当前操作完成后再发送任务")
             return
         attachments = tuple(part for _, part in self._pending_attachments)
         self.clearAttachments()
@@ -889,6 +932,7 @@ class DesktopController(QObject):
         if not self._busy:
             return
         self._queue_paused = True
+        self._cancel_requested.set()
         with self._runner_lock:
             runner = self._active_runner
             loop = self._runner_loop
@@ -897,8 +941,7 @@ class DesktopController(QObject):
         with self._approval_lock:
             pending = list(self._pending_approvals.values())
         for item in pending:
-            item.decision = ApprovalDecision.CANCEL_RUN
-            item.event.set()
+            item.resolve(ApprovalDecision.CANCEL_RUN)
         self._set_status("正在取消")
 
     @Slot(str, bool)
@@ -909,23 +952,25 @@ class DesktopController(QObject):
         if pending is None:
             return
         if isinstance(decision, bool):
-            pending.decision = ApprovalDecision.ALLOW_ONCE if decision else ApprovalDecision.DENY
+            resolved = ApprovalDecision.ALLOW_ONCE if decision else ApprovalDecision.DENY
         else:
             try:
-                pending.decision = ApprovalDecision(decision)
+                resolved = ApprovalDecision(decision)
             except ValueError:
                 self.errorOccurred.emit("未知审批决定")
                 return
-        pending.event.set()
+        pending.resolve(resolved)
 
     @Slot()
     def reloadConfiguration(self) -> None:
+        if self._busy:
+            self.errorOccurred.emit("请等待当前操作结束后再刷新配置")
+            return
         try:
-            self._config = load_config()
+            self._config = load_config(workspace=self._config.workspace)
         except Exception as exc:
             self.errorOccurred.emit(f"配置加载失败：{exc}")
             return
-        self._restore_saved_workspace()
         self._refresh_connection_state()
         self._refresh_skills()
         self.configurationChanged.emit()
@@ -1207,6 +1252,7 @@ class DesktopController(QObject):
     @Slot()
     def shutdown(self) -> None:
         self.cancelRun()
+        self._closing = True
         self._executor.shutdown(wait=False, cancel_futures=True)
 
     def _submit(
@@ -1214,15 +1260,56 @@ class DesktopController(QObject):
         kind: str,
         coroutine_factory: Callable[[], Coroutine[Any, Any, object]],
     ) -> None:
-        future = self._executor.submit(lambda: asyncio.run(coroutine_factory()))
-        future.add_done_callback(lambda completed: self._future_done(kind, completed))
+        if self._closing:
+            return
+        exclusive = kind in {
+            "run",
+            "workspace",
+            "open_session",
+            "compact_context",
+            "restore_change",
+            "restore_run",
+            "fork_session",
+            "github_write",
+            "skill_install",
+        }
+        if exclusive:
+            if self._operation_kind:
+                self.errorOccurred.emit("请等待当前操作完成")
+                return
+            self._operation_kind = kind
+            self._cancel_requested.clear()
+            self._set_busy(True)
+        generation = self._view_generation
+        version = self._request_versions.get(kind, 0) + 1
+        self._request_versions[kind] = version
 
-    def _future_done(self, kind: str, future: Future[object]) -> None:
+        async def execute() -> object:
+            if generation != self._view_generation or self._closing:
+                return {}
+            return await coroutine_factory()
+
+        future = self._executor.submit(lambda: asyncio.run(execute()))
+        future.add_done_callback(
+            lambda completed: self._future_done(kind, completed, generation, version)
+        )
+
+    def _future_done(
+        self, kind: str, future: Future[object], generation: int, version: int
+    ) -> None:
         try:
             payload: object = future.result()
         except BaseException as exc:
             payload = {"error": str(exc) or type(exc).__name__}
-        self.taskFinished.emit(kind, payload)
+        if not self._closing:
+            self.taskFinished.emit(
+                kind,
+                {
+                    "_generation": generation,
+                    "_version": version,
+                    "_payload": payload,
+                },
+            )
 
     async def _load_workspace(self) -> dict[str, object]:
         database = Database(database_file())
@@ -1478,6 +1565,8 @@ class DesktopController(QObject):
             with self._runner_lock:
                 self._active_runner = runner
                 self._runner_loop = loop
+            if self._cancel_requested.is_set():
+                loop.call_soon(runner.cancel)
 
         result = await _run_once(
             prompt,
@@ -1534,20 +1623,26 @@ class DesktopController(QObject):
             self._pending_approvals[request.id] = pending
         self.approvalRequested.emit(json.dumps(request.model_dump(mode="json"), ensure_ascii=False))
         try:
-            await asyncio.to_thread(pending.event.wait)
+            # A blocked thread survives coroutine cancellation and prevents asyncio.run
+            # from shutting down when the run times out while awaiting approval.
+            await pending.event.wait()
             return pending.decision
         finally:
             with self._approval_lock:
                 self._pending_approvals.pop(request.id, None)
+            self.approvalClosed.emit()
 
     @Slot(str, object)
     def _handle_agent_event(self, kind: str, payload: object) -> None:
         if kind == "state":
+            if str(payload) == "requesting_model":
+                self._stream_text = ""
             self._set_status(_state_label(str(payload)))
         elif kind == "delta":
             self._stream_text += str(payload)
             self.messages.update_last(content=self._stream_text, pending=True)
         elif kind == "tool_start" and isinstance(payload, dict):
+            self.messages.update_last(pending=False)
             self.messages.append_item(
                 _message_item("tool", f"正在运行 {payload.get('name', '工具')}…", pending=True)
             )
@@ -1556,17 +1651,31 @@ class DesktopController(QObject):
             self.messages.update_last(
                 content=f"{symbol} · {payload.get('summary', '')}", pending=False
             )
-            self.messages.append_item(_message_item("assistant", self._stream_text, pending=True))
+            self.messages.append_item(_message_item("assistant", "", pending=True))
         elif kind == "usage" and isinstance(payload, dict):
             marker = "估算" if payload.get("estimated") else "精确"
             self._set_status(f"运行中 · {payload.get('tokens', 0)} tokens ({marker})")
 
     @Slot(str, object)
     def _handle_task_finished(self, kind: str, payload: object) -> None:
+        if isinstance(payload, dict) and "_generation" in payload:
+            if payload["_generation"] != self._view_generation or payload[
+                "_version"
+            ] != self._request_versions.get(kind):
+                return
+            payload = payload["_payload"]
+        if self._operation_kind == kind:
+            self._operation_kind = ""
+            if kind != "run":
+                self._set_busy(False)
         if isinstance(payload, dict) and payload.get("error"):
             message = str(payload["error"])
             if kind == "run":
-                self.messages.update_last(content=f"运行未完成：{message}", pending=False)
+                partial = self._stream_text.strip()
+                self.messages.update_last(
+                    content=(partial + "\n\n" if partial else "") + f"运行未完成：{message}",
+                    pending=False,
+                )
                 self._set_busy(False)
                 self._set_status("运行中断")
                 self._queue_paused = True
@@ -1584,7 +1693,8 @@ class DesktopController(QObject):
             elif kind == "skill_install":
                 self._set_status("GitHub Skill 安装失败")
             self.errorOccurred.emit(message)
-            self._clear_runner()
+            if kind == "run":
+                self._clear_runner()
             return
         if not isinstance(payload, dict):
             return
@@ -1848,8 +1958,8 @@ class DesktopController(QObject):
                 Path(workspace).expanduser().resolve() if isinstance(workspace, str) else None
             )
             if candidate is not None and candidate.is_dir():
-                self._config.workspace = candidate
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError):
+                self._config = load_config(workspace=candidate)
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError, ConfigError):
             return
 
     def _save_workspace(self, workspace: Path) -> None:

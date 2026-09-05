@@ -6,6 +6,8 @@ import asyncio
 import json
 import os
 import re
+import subprocess
+import sys
 import time
 from collections.abc import Awaitable, Callable, Mapping
 from contextlib import suppress
@@ -22,6 +24,7 @@ from yfharness.core.models import ToolDefinition, ToolResult, ToolRiskLevel
 from yfharness.tools.base import Tool, ToolContext, ToolInput, ToolPreview
 from yfharness.tools.registry import ToolRegistry
 from yfharness.tools.security import resolve_executable, sanitized_environment, truncate_output
+from yfharness.tools.shell import _read_bounded, _terminate
 
 _PROTOCOL_VERSION = "2025-06-18"
 _SAFE_NAME = re.compile(r"[^A-Za-z0-9_.-]+")
@@ -57,6 +60,7 @@ class MCPClient:
             await self._initialize(process)
             cursor: str | None = None
             tools: list[dict[str, Any]] = []
+            cursors: set[str] = set()
             while True:
                 params = {"cursor": cursor} if cursor else {}
                 result = await self._request(
@@ -69,9 +73,14 @@ class MCPClient:
                 if not isinstance(page, list):
                     raise MCPError(f"MCP {self.server_name} tools/list 返回格式无效")
                 tools.extend(item for item in page if isinstance(item, dict))
+                if len(tools) > 500:
+                    raise MCPError(f"MCP {self.server_name} 工具数量超过 500 上限")
                 next_cursor = result.get("nextCursor")
                 if not isinstance(next_cursor, str) or not next_cursor:
                     break
+                if next_cursor in cursors:
+                    raise MCPError(f"MCP {self.server_name} 重复分页游标")
+                cursors.add(next_cursor)
                 cursor = next_cursor
             return tools
 
@@ -110,6 +119,12 @@ class MCPClient:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.DEVNULL,
                 limit=1_000_000,
+                start_new_session=sys.platform != "win32",
+                creationflags=(
+                    getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+                    if sys.platform == "win32"
+                    else 0
+                ),
             )
         except OSError as exc:
             raise MCPError(f"MCP {self.server_name} 无法启动: {exc}") from exc
@@ -118,19 +133,17 @@ class MCPClient:
         except TimeoutError as exc:
             raise MCPError(f"MCP {self.server_name} 超时") from exc
         finally:
-            if process.returncode is None:
-                try:
-                    process.terminate()
-                except ProcessLookupError:
-                    with suppress(ChildProcessError):
-                        await process.wait()
-                else:
-                    try:
-                        await asyncio.wait_for(process.wait(), timeout=2)
-                    except TimeoutError:
-                        with suppress(ProcessLookupError):
-                            process.kill()
-                        await process.wait()
+            if process.stdin is not None:
+                process.stdin.close()
+            drain = asyncio.create_task(_read_bounded(process.stdout, 0))
+            try:
+                await _terminate(process)
+                await asyncio.wait_for(drain, timeout=3)
+            finally:
+                if not drain.done():
+                    drain.cancel()
+                with suppress(asyncio.CancelledError):
+                    await drain
 
     async def _initialize(self, process: asyncio.subprocess.Process) -> None:
         await self._request(
@@ -233,6 +246,11 @@ class MCPTool(Tool):
         stdout, truncated = truncate_output("\n".join(text_parts), context.output_limit)
         structured = result.get("structuredContent")
         structured_data = structured if isinstance(structured, dict) else {"content": content}
+        serialized = json.dumps(structured_data, ensure_ascii=False)
+        if len(serialized) > context.output_limit:
+            preview, _ = truncate_output(serialized, context.output_limit)
+            structured_data = {"content_preview": preview, "trust": "external_untrusted"}
+            truncated = True
         is_error = result.get("isError") is True
         return ToolResult(
             tool_call_id=context.tool_call_id or "",

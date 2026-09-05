@@ -15,9 +15,16 @@ build/
 .vscode/
 .DS_Store
 .env
+.env.*
+!.env.example
+!.env.sample
 .yfh/
 *.db
 *.sqlite3
+*.db-wal
+*.db-shm
+*.sqlite3-wal
+*.sqlite3-shm
 *.log
 *.jsonl
 eval-report*.json

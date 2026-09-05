@@ -163,47 +163,7 @@ class AgentRunner:
         self._active_task = asyncio.current_task()
         definitions = self.available_tools()
         native_tools = self.model.supports_native_tools
-        initial_compacted = False
-        if self.context_builder is not None:
-            snapshot = self.context_builder.build(
-                user_input=user_input,
-                history=list(history or []),
-                mode=self.mode,
-                tools=definitions,
-                model=self.model,
-                native_tools=native_tools,
-                skill=skill,
-                goal=goal,
-            )
-            messages = snapshot.messages
-            initial_compacted = snapshot.compacted
-        else:
-            system_prompt = build_system_prompt(self.mode, definitions, native_tools=native_tools)
-            if skill is not None:
-                system_prompt += "\n\n" + skill.render()
-            if goal:
-                system_prompt += "\n\n# 当前会话目标\n" + goal
-            messages = list(history or [])
-            if self.model.supports_system_message:
-                messages.insert(0, Message.text(MessageRole.SYSTEM, system_prompt))
-                messages.append(Message.text(MessageRole.USER, user_input))
-            else:
-                messages.append(
-                    Message.text(
-                        MessageRole.USER,
-                        f"[Harness instructions]\n{system_prompt}\n\n[User]\n{user_input}",
-                    )
-                )
-        if attachments:
-            if any(part.type is ContentPartType.TEXT for part in attachments):
-                raise ValueError("attachments cannot contain text content parts")
-            user_message = next(
-                (message for message in reversed(messages) if message.role is MessageRole.USER),
-                None,
-            )
-            if user_message is None:
-                raise ValueError("attachments require a user message")
-            user_message.content.extend(attachments)
+        messages: list[Message] = []
         final_text = ""
         signatures: Counter[str] = Counter()
         repairs = 0
@@ -211,6 +171,53 @@ class AgentRunner:
         try:
             async with asyncio.timeout(self.limits.max_run_seconds):
                 await self._transition(run, AgentState.BUILDING_CONTEXT)
+                initial_compacted = False
+                if self.context_builder is not None:
+                    snapshot = self.context_builder.build(
+                        user_input=user_input,
+                        history=list(history or []),
+                        mode=self.mode,
+                        tools=definitions,
+                        model=self.model,
+                        native_tools=native_tools,
+                        skill=skill,
+                        goal=goal,
+                    )
+                    messages = snapshot.messages
+                    initial_compacted = snapshot.compacted
+                else:
+                    system_prompt = build_system_prompt(
+                        self.mode, definitions, native_tools=native_tools
+                    )
+                    if skill is not None:
+                        system_prompt += "\n\n" + skill.render()
+                    if goal:
+                        system_prompt += "\n\n# 当前会话目标\n" + goal
+                    messages = list(history or [])
+                    if self.model.supports_system_message:
+                        messages.insert(0, Message.text(MessageRole.SYSTEM, system_prompt))
+                        messages.append(Message.text(MessageRole.USER, user_input))
+                    else:
+                        messages.append(
+                            Message.text(
+                                MessageRole.USER,
+                                f"[Harness instructions]\n{system_prompt}\n\n[User]\n{user_input}",
+                            )
+                        )
+                if attachments:
+                    if any(part.type is ContentPartType.TEXT for part in attachments):
+                        raise ValueError("attachments cannot contain text content parts")
+                    user_message = next(
+                        (
+                            message
+                            for message in reversed(messages)
+                            if message.role is MessageRole.USER
+                        ),
+                        None,
+                    )
+                    if user_message is None:
+                        raise ValueError("attachments require a user message")
+                    user_message.content.extend(attachments)
                 while True:
                     if run.step_count >= self.limits.max_steps:
                         raise AgentLimitError(f"达到最大步骤数 {self.limits.max_steps}")
@@ -231,7 +238,7 @@ class AgentRunner:
                         model=self.model,
                         messages=messages,
                         tools=definitions if native_tools else [],
-                        stream=True,
+                        stream=self.model.supports_streaming,
                     )
                     await self._transition(run, AgentState.STREAMING)
                     text, calls, request_usage, finish_reason = await self._model_turn(request)
@@ -310,7 +317,7 @@ class AgentRunner:
             await self._terminal_transition(run, AgentState.FAILED)
             run.status = RunStatus.FAILED
             run.error = f"运行超过 {self.limits.max_run_seconds}s"
-        except (HarnessError, ValueError) as exc:
+        except (HarnessError, ValueError, OSError) as exc:
             await self._terminal_transition(run, AgentState.FAILED)
             run.status = RunStatus.FAILED
             run.error = str(exc)
@@ -328,6 +335,7 @@ class AgentRunner:
             text_parts: list[str] = []
             calls: list[ToolCall] = []
             usage = Usage()
+            usage_received = False
             finish_reason: FinishReason = "unknown"
             try:
                 async for event in self.provider.stream_chat(request):
@@ -339,13 +347,23 @@ class AgentRunner:
                         calls.append(event.tool_call)
                     elif isinstance(event, UsageEvent):
                         usage = event.usage
+                        usage_received = True
                     elif isinstance(event, FinishEvent):
                         finish_reason = event.reason
                     elif isinstance(event, ErrorEvent):
                         raise ProviderError(
                             event.message, code=event.code, retryable=event.retryable
                         )
-                return "".join(text_parts), calls, usage, finish_reason
+                text = "".join(text_parts)
+                if not usage_received:
+                    usage = Usage(
+                        input_tokens=self.provider.estimate_tokens(request.model_dump_json()),
+                        output_tokens=self.provider.estimate_tokens(
+                            text + "".join(call.model_dump_json() for call in calls)
+                        ),
+                        estimated=True,
+                    )
+                return text, calls, usage, finish_reason
             except ProviderError as exc:
                 last_error = exc
                 if emitted or not exc.retryable or attempt >= self.limits.provider_retries:

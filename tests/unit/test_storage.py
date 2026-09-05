@@ -65,7 +65,7 @@ async def test_schema_v3_upgrades_existing_sessions_with_inactive_goal(tmp_path:
     assert session.goal is None
     assert session.goal_status == "inactive"
     assert session.context_summary is None
-    assert await database.schema_version() == 5
+    assert await database.schema_version() == SCHEMA_VERSION
 
 
 @pytest.mark.asyncio
@@ -202,6 +202,10 @@ async def test_running_records_are_marked_interrupted(tmp_path: Path) -> None:
     session = await sessions.create(title="Crash", provider="mock", model="mock-default")
     run = await runs.create(session.id)
 
+    assert await runs.mark_interrupted() == 0
+    async with database.connect() as connection:
+        await connection.execute("UPDATE runs SET owner_pid = NULL WHERE run_id = ?", (run.run_id,))
+        await connection.commit()
     assert await runs.mark_interrupted() == 1
     recovered = await runs.get(run.run_id)
     assert recovered is not None

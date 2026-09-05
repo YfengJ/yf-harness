@@ -163,6 +163,9 @@ ApplicationWindow {
                                   : (onDark ? "#294563" : root.line)
         opacity: enabled ? 1 : 0.42
         activeFocusOnTab: true
+        Accessible.role: Accessible.Button
+        Accessible.name: label
+        Accessible.onPressAction: if (enabled) clicked()
         Row {
             id: buttonContent
             anchors.centerIn: parent
@@ -216,6 +219,9 @@ ApplicationWindow {
         border.color: activeFocus || selected ? (onDark ? "#8CB4FF" : root.accent)
                                                : "transparent"
         activeFocusOnTab: true
+        Accessible.role: Accessible.Button
+        Accessible.name: tooltip || glyph
+        Accessible.onPressAction: if (enabled) clicked()
         Text {
             anchors.centerIn: parent
             text: toolButton.glyph
@@ -353,6 +359,9 @@ ApplicationWindow {
         border.color: activeFocus || active ? root.accent : "transparent"
         activeFocusOnTab: true
         clip: true
+        Accessible.role: Accessible.Button
+        Accessible.name: tooltip || label
+        Accessible.onPressAction: if (enabled) clicked()
         Row {
             id: actionRow
             anchors.centerIn: parent
@@ -479,6 +488,7 @@ ApplicationWindow {
             approvalDetails.text = sections.join("\n\n")
             approvalDialog.open()
         }
+        function onApprovalClosed() { approvalDialog.close() }
         function onCurrentSessionChanged() {
             if (!controller)
                 return
@@ -851,7 +861,15 @@ ApplicationWindow {
                         clip: true
                         boundsBehavior: Flickable.StopAtBounds
                         ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
-                        onCountChanged: Qt.callLater(positionViewAtEnd)
+                        objectName: "conversation"
+                        property bool followOutput: true
+                        function followLatest() {
+                            if (followOutput) Qt.callLater(positionViewAtEnd)
+                        }
+                        onMovementStarted: followOutput = false
+                        onMovementEnded: followOutput = atYEnd
+                        onCountChanged: followLatest()
+                        onContentHeightChanged: followLatest()
                         delegate: Item {
                             id: messageDelegate
                             required property string role
@@ -906,15 +924,19 @@ ApplicationWindow {
                                     visible: !messageDelegate.isTool
                                     anchors.right: messageDelegate.isUser ? parent.right : undefined
                                     width: messageDelegate.isUser
-                                           ? Math.min(messageText.implicitWidth + 32, parent.width * 0.78)
+                                           ? parent.width * 0.78
                                            : parent.width
                                     height: messageText.implicitHeight + (messageDelegate.isUser ? 22 : 28)
                                     radius: 14
                                     color: messageDelegate.isUser ? root.accent : root.surface
                                     border.width: 1
                                     border.color: messageDelegate.isUser ? root.accent : root.line
-                                    Text {
+                                    TextEdit {
                                         id: messageText
+                                        readOnly: true
+                                        selectByMouse: true
+                                        persistentSelection: true
+                                        Accessible.name: messageDelegate.speaker
                                         anchors.left: parent.left
                                         anchors.leftMargin: messageDelegate.isUser ? 15 : 20
                                         anchors.right: parent.right
@@ -923,10 +945,11 @@ ApplicationWindow {
                                         text: messageDelegate.content || (messageDelegate.pending ? "正在思考…" : "")
                                         color: messageDelegate.isUser ? "#FFFFFF" : root.textPrimary
                                         font.pixelSize: 14
-                                        lineHeight: 1.48
-                                        wrapMode: Text.Wrap
-                                        textFormat: Text.MarkdownText
-                                        onLinkActivated: link => Qt.openUrlExternally(link)
+                                        wrapMode: TextEdit.Wrap
+                                        textFormat: messageDelegate.isUser ? TextEdit.PlainText : TextEdit.MarkdownText
+                                        onLinkActivated: link => {
+                                            if (/^https?:\/\//i.test(link)) Qt.openUrlExternally(link)
+                                        }
                                     }
                                     Rectangle {
                                         visible: false
@@ -968,6 +991,18 @@ ApplicationWindow {
                                     }
                                 }
                             }
+                        }
+                    }
+
+                    QuietButton {
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        anchors.margins: 12
+                        visible: !conversation.followOutput && !conversation.atYEnd
+                        label: "回到最新消息 ↓"
+                        onClicked: {
+                            conversation.followOutput = true
+                            conversation.positionViewAtEnd()
                         }
                     }
 
@@ -1181,6 +1216,7 @@ ApplicationWindow {
                         TextArea {
                             id: promptInput
                             objectName: "promptInput"
+                            Accessible.name: "任务输入"
                             Layout.fillWidth: true
                             Layout.fillHeight: true
                             placeholderText: "描述要完成的任务，或按 ⌘K 打开命令中心…"
@@ -1953,7 +1989,7 @@ ApplicationWindow {
                 Text {
                     Layout.fillWidth: true
                     Layout.topMargin: 10
-                    text: "YF-Harness 0.12.0 · Local first"
+                    text: "YF-Harness 0.13.0 · Local first"
                     color: root.textMuted
                     font.pixelSize: 9
                     horizontalAlignment: Text.AlignHCenter

@@ -5,16 +5,17 @@
 ## 开发环境
 
 ```bash
-uv sync --extra dev
+uv sync --extra dev --extra desktop --extra frameworks --locked
 uv run ruff format .
 uv run ruff check .
 uv run mypy src
+uv run mypy --config-file packaging/mypy-desktop.ini src/yfharness/desktop
 uv run pytest
 uv run yfh eval
 uv build
 ```
 
-也可以使用 Python 3.12+ 的 venv 和 `pip install -e '.[dev]'`。测试必须离线可运行，不得依赖真实 API Key。
+也可以使用 Python 3.12+ 的 venv 和 `pip install -e '.[dev,desktop,frameworks]'`。测试必须离线可运行，不得依赖真实 API Key。只开发核心时可仅安装 `dev`，但完整类型检查需要框架依赖；桌面测试使用独立 CI 门禁。
 
 ## 变更规则
 

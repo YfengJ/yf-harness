@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import subprocess
@@ -15,7 +16,7 @@ pytest.importorskip("PySide6")
 from PySide6.QtCore import QCoreApplication
 from PySide6.QtGui import QGuiApplication, QImage
 
-from yfharness.core.models import ModelConfig
+from yfharness.core.models import ApprovalRequest, ModelConfig, ToolCall, ToolRiskLevel
 from yfharness.desktop.controller import DesktopController, DictListModel
 
 
@@ -42,6 +43,106 @@ def _item(model: DictListModel, row: int) -> dict[str, object]:
     return {
         bytes(name).decode(): model.data(index, role) for role, name in model.roleNames().items()
     }
+
+
+@pytest.fixture
+def isolated_controller(
+    qt_application: QGuiApplication,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> Iterator[DesktopController]:
+    monkeypatch.setenv("YFH_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("YFH_DATA_DIR", str(tmp_path / "data"))
+    controller = DesktopController()
+    yield controller
+    controller.shutdown()
+
+
+@pytest.mark.desktop
+def test_stale_async_results_do_not_replace_current_view(
+    isolated_controller: DesktopController,
+) -> None:
+    controller = isolated_controller
+    previous = controller._view_generation
+    controller.newSession()
+    controller._handle_task_finished(
+        "sessions",
+        {
+            "_generation": previous,
+            "_version": 1,
+            "_payload": {"sessions": [{"sessionId": "stale", "title": "stale"}]},
+        },
+    )
+    assert controller.sessions.rowCount() == 0
+
+
+@pytest.mark.desktop
+def test_approval_timeout_releases_wait_and_closes_dialog(
+    isolated_controller: DesktopController,
+) -> None:
+    controller = isolated_controller
+    closed: list[bool] = []
+    controller.approvalClosed.connect(lambda: closed.append(True))
+
+    async def expire() -> None:
+        request = ApprovalRequest(
+            run_id="timeout",
+            tool_call=ToolCall(id="write", name="write_file", arguments={}),
+            risk_level=ToolRiskLevel.HIGH,
+        )
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(controller._request_approval(request), timeout=0.02)
+        assert not controller._pending_approvals
+
+    asyncio.run(expire())
+    QCoreApplication.processEvents()
+    assert closed == [True]
+
+
+@pytest.mark.desktop
+def test_streamed_tool_turns_do_not_repeat_previous_answer(
+    isolated_controller: DesktopController,
+) -> None:
+    controller = isolated_controller
+    controller.messages.append_item({"role": "assistant", "content": "", "pending": True})
+    controller._handle_agent_event("state", "requesting_model")
+    controller._handle_agent_event("delta", "I will inspect the file.")
+    controller._handle_agent_event("tool_start", {"name": "read_file"})
+    controller._handle_agent_event("tool_finish", {"success": True, "summary": "read"})
+    controller._handle_agent_event("state", "requesting_model")
+    controller._handle_agent_event("delta", "Final answer.")
+    assert _item(controller.messages, 0)["content"] == "I will inspect the file."
+    assert _item(controller.messages, 2)["content"] == "Final answer."
+
+
+@pytest.mark.desktop
+def test_new_session_clears_attachments_and_paused_queue(
+    isolated_controller: DesktopController,
+) -> None:
+    controller = isolated_controller
+    controller.queue.append_item({"queueId": "old", "prompt": "old project task"})
+    controller._queue_paused = True
+    controller.newSession()
+    assert controller.queue.rowCount() == 0
+    assert not controller._queue_paused
+
+
+@pytest.mark.desktop
+def test_workspace_switch_reloads_project_settings_and_clears_github(
+    isolated_controller: DesktopController,
+    tmp_path: Path,
+) -> None:
+    controller = isolated_controller
+    workspace = tmp_path / "second"
+    (workspace / ".yfh").mkdir(parents=True)
+    (workspace / ".yfh" / "config.toml").write_text("[agent]\nmax_steps = 7\n")
+    controller._github_snapshot = {"repository": "old/repository"}
+    controller._last_plan = "old plan"
+    controller.setWorkspace(str(workspace))
+    _wait_until(lambda: not controller.busy)
+    assert controller._config.agent.max_steps == 7
+    assert not controller._github_snapshot
+    assert not controller._last_plan
 
 
 @pytest.mark.desktop

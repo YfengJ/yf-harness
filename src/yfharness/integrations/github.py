@@ -115,6 +115,11 @@ class GitHubService:
         return self._git(["pull", "--ff-only", "origin", self.current_branch()], timeout=120)
 
     def push(self) -> str:
+        destinations = self._git(["remote", "get-url", "--push", "--all", "origin"]).splitlines()
+        if not destinations or any(
+            _repository_from_remote(url.strip()) != self.repository for url in destinations
+        ):
+            raise GitHubError("origin 推送目标与已确认的 GitHub 仓库不一致，拒绝推送")
         branch = self.current_branch()
         _validate_branch(branch)
         return self._git(["push", "origin", f"HEAD:refs/heads/{branch}"], timeout=120)

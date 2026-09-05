@@ -76,7 +76,7 @@ def _apply(original: str, patch: str) -> str:
     output: list[str] = []
     cursor = 0
     for hunk in hunks:
-        start = hunk.old_start - 1
+        start = hunk.old_start if hunk.old_count == 0 else hunk.old_start - 1
         if start < cursor or start > len(source):
             raise ToolExecutionError("补丁 hunk 行号超出范围或重叠")
         output.extend(source[cursor:start])
@@ -124,7 +124,12 @@ def _parse_hunks(patch: str) -> list[Hunk]:
         index += 1
         body: list[str] = []
         while index < len(lines) and not lines[index].startswith("@@ "):
-            body.append(lines[index])
+            if lines[index].startswith("\\ No newline at end of file"):
+                if not body:
+                    raise ToolExecutionError("无效的补丁换行标记")
+                body[-1] = body[-1].removesuffix("\n")
+            else:
+                body.append(lines[index])
             index += 1
         hunks.append(
             Hunk(

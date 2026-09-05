@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from copy import copy
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any
@@ -61,6 +62,17 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(redact(fields), ensure_ascii=False, default=str)
 
 
+class RedactingFormatter(logging.Formatter):
+    """Redact the rendered message and traceback without mutating other handlers."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        safe = copy(record)
+        safe.msg = redact(record.getMessage())
+        safe.args = ()
+        safe.exc_text = None
+        return str(redact(super().format(safe)))
+
+
 def configure_logging(
     *,
     level: str = "INFO",
@@ -71,7 +83,9 @@ def configure_logging(
     target.mkdir(parents=True, exist_ok=True)
     logger = logging.getLogger("yfharness")
     logger.setLevel(level.upper())
-    logger.handlers.clear()
+    for handler in logger.handlers[:]:
+        logger.removeHandler(handler)
+        handler.close()
     logger.propagate = False
     json_handler = RotatingFileHandler(
         target / "debug.jsonl",
@@ -88,13 +102,15 @@ def configure_logging(
         encoding="utf-8",
     )
     text_handler.setFormatter(
-        logging.Formatter("%(asctime)s %(levelname)s run=%(run_id)s trace=%(trace_id)s %(message)s")
+        RedactingFormatter(
+            "%(asctime)s %(levelname)s run=%(run_id)s trace=%(trace_id)s %(message)s"
+        )
     )
     text_handler.addFilter(_ContextFilter())
     logger.addHandler(text_handler)
     if console:
         console_handler = logging.StreamHandler()
-        console_handler.setFormatter(logging.Formatter("%(levelname)s %(message)s"))
+        console_handler.setFormatter(RedactingFormatter("%(levelname)s %(message)s"))
         logger.addHandler(console_handler)
     return logger
 
@@ -110,6 +126,4 @@ class _ContextFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         record.run_id = getattr(record, "run_id", None) or current_run_id.get() or "-"
         record.trace_id = getattr(record, "trace_id", None) or current_trace_id.get() or "-"
-        record.msg = redact(record.msg)
-        record.args = redact(record.args)
         return True

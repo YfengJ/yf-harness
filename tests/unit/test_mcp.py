@@ -103,3 +103,34 @@ async def test_local_override_can_expose_known_mcp_search_as_read_only(tmp_path:
     definition = registry.definitions()[0]
     assert definition.read_only is True
     assert definition.risk_level is ToolRiskLevel.MEDIUM
+
+
+async def test_mcp_structured_payload_cannot_bypass_output_bound(tmp_path: Path) -> None:
+    registry = ToolRegistry()
+    await register_mcp_tools(registry, config(tmp_path), tmp_path)
+    context = ToolContext(workspace=tmp_path, guard=WorkspaceGuard(tmp_path), output_limit=200)
+
+    async def approve(_: object) -> ApprovalDecision:
+        return ApprovalDecision.ALLOW_ONCE
+
+    executor = ToolExecutor(registry, context, approval_handler=approve)
+    result = await executor.execute(
+        ToolCall(id="large", name="mcp__fixture__echo", arguments={"value": "x" * 20_000})
+    )
+    assert result.truncated
+    assert "echo" not in result.structured_data
+    assert len(result.structured_data["content_preview"]) < 300
+
+
+async def test_mcp_rejects_repeated_pagination_cursor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from yfharness.integrations.mcp import MCPClient, MCPError
+
+    async def repeated_page(*args: object, **kwargs: object) -> dict[str, object]:
+        return {"tools": [], "nextCursor": "loop"}
+
+    monkeypatch.setattr(MCPClient, "_request", repeated_page)
+    client = MCPClient("fixture", config(tmp_path).mcp_servers["fixture"], tmp_path)
+    with pytest.raises(MCPError, match="重复分页"):
+        await client.list_tools()

@@ -30,6 +30,14 @@ TokenEstimator = Callable[[str], int]
 type CompactionStatus = Literal["none", "reused", "created"]
 
 
+def _recent_with_tool_calls(messages: list[Message], count: int) -> list[Message]:
+    """Keep the assistant call when a truncation boundary falls inside its results."""
+    start = max(0, len(messages) - count)
+    while start > 0 and messages[start].role is MessageRole.TOOL:
+        start -= 1
+    return messages[start:]
+
+
 class ContextSource(DomainModel):
     kind: str
     label: str
@@ -182,7 +190,7 @@ class ContextBuilder:
                 MessageRole.SYSTEM if model.supports_system_message else MessageRole.USER,
                 previous_summary.to_markdown(),
             )
-            messages = [summary_message, *messages[-self.recent_messages :]]
+            messages = [summary_message, *_recent_with_tool_calls(messages, self.recent_messages)]
             sources.append(ContextSource(kind="summary", label="previous compaction"))
         user_text = user_input
         if attachment_text:
@@ -242,9 +250,10 @@ class ContextBuilder:
             system_messages = [
                 message for message in messages if message.role is MessageRole.SYSTEM
             ][:1]
-            recent = [message for message in messages if message.role is not MessageRole.SYSTEM][
-                -self.recent_messages :
-            ]
+            recent = _recent_with_tool_calls(
+                [message for message in messages if message.role is not MessageRole.SYSTEM],
+                self.recent_messages,
+            )
             summary_role = MessageRole.SYSTEM if model.supports_system_message else MessageRole.USER
             fitted = [
                 *system_messages,
@@ -260,7 +269,7 @@ class ContextBuilder:
                     candidate = [
                         *system_messages,
                         Message.text(summary_role, summary.to_markdown()),
-                        *recent[-keep:],
+                        *_recent_with_tool_calls(recent, keep),
                     ]
                     candidate_tokens = self._estimate_messages(candidate) + tool_tokens
                     if candidate_tokens <= budget:

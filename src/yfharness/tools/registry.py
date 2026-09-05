@@ -119,6 +119,11 @@ class ToolExecutor:
         if action is PolicyAction.DENY:
             raise PolicyDeniedError(f"当前模式或权限策略禁止工具: {tool.name}")
         preview = await tool.preview(arguments, self.context)
+        snapshots = (
+            self._path_snapshots(preview.paths)
+            if tool.name in {"write_file", "apply_patch", "move_path", "delete_path"}
+            else {}
+        )
         if action is PolicyAction.ASK:
             if self.approval_handler is None:
                 raise PolicyDeniedError(f"工具需要审批但没有审批处理器: {tool.name}")
@@ -138,6 +143,8 @@ class ToolExecutor:
                 raise PolicyDeniedError(f"用户拒绝工具调用: {tool.name}")
             elif decision is ApprovalDecision.CANCEL_RUN:
                 raise asyncio.CancelledError
+        if snapshots and snapshots != self._path_snapshots(preview.paths):
+            raise ToolExecutionError("审批期间文件发生变化，请重新查看 Diff 并确认")
         self.context.tool_call_id = call.id
         change_index = self.context.changes.count if self.context.changes is not None else 0
         try:
@@ -150,6 +157,24 @@ class ToolExecutor:
             for entry in self.context.changes.entries_since(change_index):
                 await self.context.change_recorder(entry)
         return result
+
+    def _path_snapshots(self, paths: list[str]) -> dict[str, object]:
+        snapshots: dict[str, object] = {}
+        for name in paths:
+            path = self.context.guard.resolve(name)
+            if path.exists():
+                stat = path.stat()
+                snapshots[name] = (
+                    str(path),
+                    stat.st_dev,
+                    stat.st_ino,
+                    stat.st_size,
+                    stat.st_mtime_ns,
+                    stat.st_ctime_ns,
+                )
+            else:
+                snapshots[name] = (str(path), None)
+        return snapshots
 
     async def _emit_post_hook(
         self,

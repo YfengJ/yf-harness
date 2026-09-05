@@ -205,6 +205,7 @@ class OpenAICompatibleProvider(Provider):
         response = await self._send_stream_with_retry(client, payload)
         builders: dict[int, dict[str, str]] = {}
         finished = False
+        done = False
         try:
             async for line in response.aiter_lines():
                 if not line or line.startswith(":"):
@@ -213,6 +214,7 @@ class OpenAICompatibleProvider(Provider):
                     continue
                 data = line[5:].strip()
                 if data == "[DONE]":
+                    done = True
                     break
                 try:
                     chunk = json.loads(data)
@@ -229,6 +231,8 @@ class OpenAICompatibleProvider(Provider):
         finally:
             await response.aclose()
 
+        if not (finished or done):
+            raise ProviderError("模型响应在完成前断开，请重试", code="stream_interrupted")
         for index in sorted(builders):
             item = builders[index]
             arguments = self._parse_tool_arguments(item["arguments"])

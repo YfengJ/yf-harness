@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import codecs
 import os
 import shlex
 import signal
 import subprocess
 import sys
 import time
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -16,7 +18,7 @@ from pydantic import Field, model_validator
 
 from yfharness.core.models import ToolResult, ToolRiskLevel
 from yfharness.tools.base import Tool, ToolContext, ToolInput, ToolPreview
-from yfharness.tools.security import sanitized_environment, truncate_output
+from yfharness.tools.security import sanitized_environment
 
 _NETWORK_COMMANDS = {"curl", "wget", "nc", "ncat", "ssh", "scp", "ftp", "telnet"}
 _DANGEROUS_TOKENS = {"sudo", "shutdown", "reboot", "mkfs", "diskutil", "format", "dd"}
@@ -137,23 +139,21 @@ async def execute_command(
         assert isinstance(command, list)
         process = await asyncio.create_subprocess_exec(*command, **kwargs)
     timed_out = False
+    stdout_task = asyncio.create_task(_read_bounded(process.stdout, output_limit))
+    stderr_task = asyncio.create_task(_read_bounded(process.stderr, output_limit))
+    completion = asyncio.gather(process.wait(), stdout_task, stderr_task)
     try:
-        stdout_bytes, stderr_bytes = await asyncio.wait_for(
-            process.communicate(), timeout=timeout_seconds
-        )
+        await asyncio.wait_for(asyncio.shield(completion), timeout=timeout_seconds)
     except TimeoutError:
         timed_out = True
         await _terminate(process)
-        stdout_bytes, stderr_bytes = await process.communicate()
+        await completion
     except asyncio.CancelledError:
         await _terminate(process)
+        await completion
         raise
-    stdout, stdout_truncated = truncate_output(
-        stdout_bytes.decode("utf-8", errors="replace"), output_limit
-    )
-    stderr, stderr_truncated = truncate_output(
-        stderr_bytes.decode("utf-8", errors="replace"), output_limit
-    )
+    stdout, stdout_truncated = stdout_task.result()
+    stderr, stderr_truncated = stderr_task.result()
     duration = time.monotonic() - started
     if timed_out:
         return ToolResult(
@@ -180,15 +180,38 @@ async def execute_command(
     )
 
 
+async def _read_bounded(reader: asyncio.StreamReader | None, limit: int) -> tuple[str, bool]:
+    if reader is None:
+        return "", False
+    decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+    parts: list[str] = []
+    retained = 0
+    total = 0
+    while True:
+        chunk = await reader.read(64 * 1024)
+        text = decoder.decode(chunk, final=not chunk)
+        total += len(text)
+        if retained < limit:
+            kept = text[: limit - retained]
+            parts.append(kept)
+            retained += len(kept)
+        if not chunk:
+            break
+    output = "".join(parts)
+    if total > limit:
+        output += f"\n... <truncated {total - limit} characters>"
+    return output, total > limit
+
+
 async def _terminate(process: asyncio.subprocess.Process) -> None:
-    if process.returncode is not None:
-        return
     if sys.platform != "win32":
         try:
             os.killpg(process.pid, signal.SIGTERM)
         except ProcessLookupError:
             return
     else:
+        if process.returncode is not None:
+            return
         await _kill_windows_process_tree(process)
     try:
         await asyncio.wait_for(process.wait(), timeout=2)
@@ -201,6 +224,11 @@ async def _terminate(process: asyncio.subprocess.Process) -> None:
         else:
             process.kill()
         await process.wait()
+    finally:
+        # Descendants may retain the pipes even after their parent exits on TERM.
+        if sys.platform != "win32":
+            with suppress(ProcessLookupError):
+                os.killpg(process.pid, signal.SIGKILL)
 
 
 async def _kill_windows_process_tree(process: asyncio.subprocess.Process) -> None:

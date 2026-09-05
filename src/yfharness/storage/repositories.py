@@ -5,6 +5,7 @@ from __future__ import annotations
 import builtins
 import hashlib
 import json
+import os
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
@@ -19,6 +20,7 @@ from yfharness.storage.models import (
     UsageOverview,
     UsageTotals,
 )
+from yfharness.storage.processes import process_alive
 
 
 def _now() -> str:
@@ -317,8 +319,8 @@ class RunRepository:
                 """
                 INSERT INTO runs(
                     run_id, trace_id, session_id, state, status, started_at,
-                    step_count, tool_call_count, usage_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    step_count, tool_call_count, usage_json, owner_pid
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     run.run_id,
@@ -330,6 +332,7 @@ class RunRepository:
                     0,
                     0,
                     run.usage.model_dump_json(),
+                    os.getpid(),
                 ),
             )
             await connection.commit()
@@ -366,20 +369,31 @@ class RunRepository:
 
     async def mark_interrupted(self) -> int:
         async with self.database.connect() as connection:
-            cursor = await connection.execute(
+            await connection.execute("BEGIN IMMEDIATE")
+            rows = await (
+                await connection.execute(
+                    "SELECT run_id, owner_pid FROM runs WHERE status = ?",
+                    (RunStatus.RUNNING.value,),
+                )
+            ).fetchall()
+            stale = [row["run_id"] for row in rows if not process_alive(row["owner_pid"])]
+            await connection.executemany(
                 """
                 UPDATE runs SET status = ?, state = ?, ended_at = ?,
-                    error = COALESCE(error, 'process interrupted') WHERE status = ?
+                    error = COALESCE(error, 'process interrupted') WHERE run_id = ?
                 """,
-                (
-                    RunStatus.INTERRUPTED.value,
-                    AgentState.FAILED.value,
-                    _now(),
-                    RunStatus.RUNNING.value,
-                ),
+                [
+                    (
+                        RunStatus.INTERRUPTED.value,
+                        AgentState.FAILED.value,
+                        _now(),
+                        run_id,
+                    )
+                    for run_id in stale
+                ],
             )
             await connection.commit()
-            return cursor.rowcount
+            return len(stale)
 
     async def get(self, run_id: str) -> AgentRun | None:
         async with self.database.connect() as connection:

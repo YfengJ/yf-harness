@@ -43,6 +43,7 @@ from yfharness.core.models import (
     AgentRun,
     ApprovalDecision,
     ApprovalRequest,
+    Message,
     MessageRole,
     RunStatus,
 )
@@ -282,6 +283,10 @@ class YFHarnessApp(App[None]):
                 self.current_session_id = session.id
             session_id = self.current_session_id
             history = await self.sessions.messages(session_id)
+            stored_session = await self.sessions.get(session_id)
+            self.context_builder.previous_summary = (
+                stored_session.context_summary if stored_session is not None else None
+            )
             await self._mount_message(MessageRole.USER, prompt)
             self._stream_text = ""
             self._stream_widget = Static("", classes="message-assistant")
@@ -351,9 +356,23 @@ class YFHarnessApp(App[None]):
             if not model.supports_native_tools and self._stream_widget is not None:
                 self._stream_widget.update(result.final_text)
             existing_ids = {message.id for message in history}
+            original_user_saved = False
             for message in result.messages:
                 if message.role is not MessageRole.SYSTEM and message.id not in existing_ids:
-                    await self.sessions.add_message(session_id, message)
+                    persisted = message
+                    if message.role is MessageRole.USER and not original_user_saved:
+                        persisted = Message.text(
+                            MessageRole.USER,
+                            prompt,
+                            id=message.id,
+                            metadata=message.metadata,
+                            created_at=message.created_at,
+                        )
+                        original_user_saved = True
+                    await self.sessions.add_message(session_id, persisted)
+            snapshot = self.context_builder.last_snapshot
+            if snapshot is not None:
+                await self.sessions.update_context_summary(session_id, snapshot.summary)
             await self.runs.finish(
                 run_record,
                 status=result.run.status,

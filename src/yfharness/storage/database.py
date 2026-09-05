@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
+from sqlite3 import complete_statement
 
 import aiosqlite
 
@@ -18,6 +19,9 @@ class Database:
     async def initialize(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         async with self.connect() as connection:
+            # Serialize initializers before reading the version. executescript() commits
+            # implicitly, so execute complete SQL statements inside this transaction.
+            await connection.execute("BEGIN IMMEDIATE")
             await connection.execute(
                 "CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)"
             )
@@ -34,7 +38,14 @@ class Database:
                     f"database schema {current} is newer than supported {SCHEMA_VERSION}"
                 )
             for version in range(current + 1, SCHEMA_VERSION + 1):
-                await connection.executescript(MIGRATIONS[version])
+                statement = ""
+                for line in MIGRATIONS[version].splitlines(keepends=True):
+                    statement += line
+                    if complete_statement(statement):
+                        await connection.execute(statement)
+                        statement = ""
+                if statement.strip():
+                    raise ValueError(f"incomplete SQL in migration {version}")
                 await connection.execute("UPDATE schema_version SET version = ?", (version,))
             await connection.commit()
 
